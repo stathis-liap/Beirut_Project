@@ -1,0 +1,19 @@
+# generated pipeline outputs (regenerate via build_dem.py / flood_sim.py / render_3d.py)
+/terrain/
+/sim/
+/output/
+
+# python
+__pycache__/
+*.pyc
+
+# numba disk cache
+*.nbi
+*.nbc
+
+# venv
+.venv/
+venv/
+
+# editor/tool noise
+tempCodeRunnerFile.py

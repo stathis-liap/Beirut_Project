@@ -20,7 +20,9 @@ import argparse
 import json
 import multiprocessing as mp
 import os
+import shutil
 import sys
+import tempfile
 import time
 
 import numpy as np
@@ -79,30 +81,51 @@ def pick_polygon(preview_dir):
     return np.column_stack([ux, uy])
 
 
+# 2M points = ~52 MB read buffer per worker; keeps total RAM bounded even
+# with many workers (the old 20M default cost ~850 MB per worker).
+CHUNK_POINTS = 2_000_000
+
+
 def filter_range(args):
-    """Return (n_kept, bytes_of_kept_records, zmin, zmax) for one point range."""
-    path, poly, start, stop = args
+    """Stream kept records of one point range into part_path.
+
+    Returns (n_kept, zmin, zmax); part_path is only created if points are kept.
+    """
+    path, poly, start, stop, part_path = args
     header = LasHeader(path)
     mpath = MplPath(poly)
     bx0, by0 = poly.min(axis=0)
     bx1, by1 = poly.max(axis=0)
-    kept = []
-    zmin, zmax = np.inf, -np.inf
-    for _, pts in iter_chunks(header, start=start, stop=stop):
-        x, y = header.scale_xy(pts)
-        m = (x >= bx0) & (x <= bx1) & (y >= by0) & (y <= by1)
-        if not m.any():
-            continue
-        xi, yi = x[m], y[m]
-        inside = mpath.contains_points(np.column_stack([xi, yi]))
-        if not inside.any():
-            continue
-        sel = pts[m][inside]
-        kept.append(sel.tobytes())
-        z = sel["Z"] * header.sz + header.oz
-        zmin = min(zmin, z.min())
-        zmax = max(zmax, z.max())
-    return len(kept) and sum(len(b) // header.record_length for b in kept), b"".join(kept), zmin, zmax
+    n_kept = 0
+    zi_min, zi_max = None, None
+    out = None
+    try:
+        for _, pts in iter_chunks(header, chunk_points=CHUNK_POINTS,
+                                  start=start, stop=stop):
+            x, y = header.scale_xy(pts)
+            m = (x >= bx0) & (x <= bx1) & (y >= by0) & (y <= by1)
+            idx = np.flatnonzero(m)
+            if idx.size == 0:
+                continue
+            inside = mpath.contains_points(np.column_stack([x[idx], y[idx]]))
+            if not inside.any():
+                continue
+            sel = pts[idx[inside]]
+            if out is None:
+                out = open(part_path, "wb")
+            sel.tofile(out)
+            n_kept += len(sel)
+            z0, z1 = int(sel["Z"].min()), int(sel["Z"].max())
+            zi_min = z0 if zi_min is None else min(zi_min, z0)
+            zi_max = z1 if zi_max is None else max(zi_max, z1)
+    finally:
+        if out is not None:
+            out.close()
+    if n_kept == 0:
+        return 0, np.inf, -np.inf
+    return (n_kept,
+            zi_min * header.sz + header.oz,
+            zi_max * header.sz + header.oz)
 
 
 def check_coverage(preview_dir, poly):
@@ -110,14 +133,23 @@ def check_coverage(preview_dir, poly):
     count = np.load(os.path.join(preview_dir, "preview_count.npy"))
     t = load_transform(os.path.join(preview_dir, "preview_transform.json"))
     h, w = count.shape
-    cols, rows = np.meshgrid(np.arange(w), np.arange(h))
+    # only test cells inside the polygon's pixel bounding box
+    pc, pr = utm_to_pixel(t, poly[:, 0], poly[:, 1])
+    c0 = max(0, int(np.floor(pc.min())))
+    c1 = min(w, int(np.ceil(pc.max())) + 1)
+    r0 = max(0, int(np.floor(pr.min())))
+    r1 = min(h, int(np.ceil(pr.max())) + 1)
+    if c0 >= c1 or r0 >= r1:
+        print("WARNING: polygon is outside the preview grid")
+        return
+    cols, rows = np.meshgrid(np.arange(c0, c1), np.arange(r0, r1))
     ux, uy = pixel_to_utm(t, cols.ravel() + 0.5, rows.ravel() + 0.5)
     inside = MplPath(poly).contains_points(np.column_stack([ux, uy]))
     n_in = inside.sum()
     if n_in == 0:
         print("WARNING: polygon is outside the preview grid")
         return
-    covered = (count.ravel()[inside] > 0).sum()
+    covered = (count[r0:r1, c0:c1].ravel()[inside] > 0).sum()
     pct = 100.0 * covered / n_in
     print(f"coverage inside polygon: {pct:.1f}% of cells have points")
     if pct < 95:
@@ -125,7 +157,7 @@ def check_coverage(preview_dir, poly):
               "incomplete there. Re-run the crop when the file is complete.")
 
 
-def write_las(out_path, header, point_bytes, n_kept, poly, zmin, zmax):
+def write_las(out_path, header, part_paths, n_kept, poly, zmin, zmax):
     """Write kept records under a copy of the source header with fixed counts/extents."""
     import struct
     raw = bytearray(header.read_raw_prefix())
@@ -136,8 +168,9 @@ def write_las(out_path, header, point_bytes, n_kept, poly, zmin, zmax):
     struct.pack_into("<6d", raw, 179, bx1, bx0, by1, by0, zmax, zmin)
     with open(out_path, "wb") as f:
         f.write(raw)
-        for b in point_bytes:
-            f.write(b)
+        for p in part_paths:
+            with open(p, "rb") as src:
+                shutil.copyfileobj(src, f, length=64 * 1024 * 1024)
 
 
 def main():
@@ -171,24 +204,31 @@ def main():
     n = header.n_points_in_file
     n_ranges = args.workers * 4
     bounds = np.linspace(0, n, n_ranges + 1, dtype=np.int64)
-    jobs = [(args.las, poly, int(bounds[i]), int(bounds[i + 1]))
+    out_dir = os.path.dirname(os.path.abspath(args.out))
+    tmp_dir = tempfile.mkdtemp(prefix="crop_parts_", dir=out_dir)
+    jobs = [(args.las, poly, int(bounds[i]), int(bounds[i + 1]),
+             os.path.join(tmp_dir, f"part_{i:05d}.bin"))
             for i in range(n_ranges) if bounds[i] < bounds[i + 1]]
 
-    t0 = time.time()
-    results = []
-    with mp.Pool(args.workers) as pool:
-        for k, res in enumerate(pool.imap(filter_range, jobs)):
-            results.append(res)
-            print(f"\r  {100 * (k + 1) / len(jobs):5.1f}%  ({time.time() - t0:.0f}s)",
-                  end="", flush=True)
-    print()
+    try:
+        t0 = time.time()
+        results = []
+        with mp.Pool(args.workers) as pool:
+            for k, res in enumerate(pool.imap(filter_range, jobs)):
+                results.append(res)
+                print(f"\r  {100 * (k + 1) / len(jobs):5.1f}%  ({time.time() - t0:.0f}s)",
+                      end="", flush=True)
+        print()
 
-    n_kept = sum(r[0] for r in results)
-    if n_kept == 0:
-        sys.exit("no points inside polygon - nothing written")
-    zmin = min(r[2] for r in results)
-    zmax = max(r[3] for r in results)
-    write_las(args.out, header, [r[1] for r in results], n_kept, poly, zmin, zmax)
+        n_kept = sum(r[0] for r in results)
+        if n_kept == 0:
+            sys.exit("no points inside polygon - nothing written")
+        zmin = min(r[1] for r in results)
+        zmax = max(r[2] for r in results)
+        part_paths = [j[4] for j in jobs if os.path.exists(j[4])]
+        write_las(args.out, header, part_paths, n_kept, poly, zmin, zmax)
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
 
     print(f"kept {n_kept:,} of {n:,} points "
           f"({100 * n_kept / n:.2f}%) -> {args.out} "

@@ -3,8 +3,11 @@
 
 Inertial shallow-water scheme of Bates, Horritt & Fewtrell (2010), the
 LISFLOOD-FP formulation: explicit, staggered grid, semi-implicit friction,
-adaptive CFL timestep. Vectorized NumPy; a corridor-scale grid
-(~2000 x 2000 at 1 m) runs a 1-hour storm in minutes.
+adaptive CFL timestep. The per-step stencil (x/y momentum + continuity) is
+fused into one Numba-jitted, multi-threaded kernel instead of ~20 separate
+NumPy passes - NumPy's per-op temporary-array allocation and dispatch
+overhead was the actual bottleneck at these grid sizes (hundreds of
+thousands of cells, tens of thousands of adaptive timesteps), not raw FLOPs.
 
 Usage:
   python scripts/flood_sim.py --dem output/dem.npy \
@@ -20,7 +23,114 @@ import argparse
 import json
 import os
 
+import numba as nb
 import numpy as np
+
+
+@nb.njit(parallel=True, fastmath=True, cache=True)
+def _step_kernel(dem, depth, qx, qy, max_depth, dt, res, g, n_manning, h_min,
+                  rain_ms, raining, infil_ms, sink_mask, cell_area):
+    """One explicit LISFLOOD-FP timestep, fused into a single compiled pass.
+
+    Three sequential sweeps (x-momentum, y-momentum, continuity) - each
+    parallelized over rows - replace the original's ~20 whole-array NumPy
+    ops per step. Semantics (order of operations, flux limiter, mass
+    accounting) match the original vectorized implementation exactly.
+    """
+    h, w = depth.shape
+    new_qx = np.empty_like(qx)
+    new_qy = np.empty_like(qy)
+    new_depth = np.empty_like(depth)
+
+    # --- x-direction momentum (face j: between column j and j+1) ---
+    for i in nb.prange(h):
+        for j in range(w - 1):
+            zl = dem[i, j] + depth[i, j]
+            zr = dem[i, j + 1] + depth[i, j + 1]
+            hflow = max(zl, zr) - max(dem[i, j], dem[i, j + 1])
+            if hflow < 0.0:
+                hflow = 0.0
+            if hflow <= h_min:
+                new_qx[i, j] = 0.0
+                continue
+            slope = (zl - zr) / res
+            q_old = qx[i, j]
+            denom = 1.0 + g * dt * n_manning ** 2 * abs(q_old) / hflow ** (10.0 / 3.0)
+            q_new = (q_old + g * hflow * dt * slope) / denom
+            lo = -depth[i, j + 1] * res / dt / 4.0
+            hi = depth[i, j] * res / dt / 4.0
+            if q_new < lo:
+                q_new = lo
+            elif q_new > hi:
+                q_new = hi
+            new_qx[i, j] = q_new
+
+    # --- y-direction momentum (face i: between row i and i+1; +y = south) ---
+    for i in nb.prange(h - 1):
+        for j in range(w):
+            zt = dem[i, j] + depth[i, j]
+            zb = dem[i + 1, j] + depth[i + 1, j]
+            hflow = max(zt, zb) - max(dem[i, j], dem[i + 1, j])
+            if hflow < 0.0:
+                hflow = 0.0
+            if hflow <= h_min:
+                new_qy[i, j] = 0.0
+                continue
+            slope = (zt - zb) / res
+            q_old = qy[i, j]
+            denom = 1.0 + g * dt * n_manning ** 2 * abs(q_old) / hflow ** (10.0 / 3.0)
+            q_new = (q_old + g * hflow * dt * slope) / denom
+            lo = -depth[i + 1, j] * res / dt / 4.0
+            hi = depth[i, j] * res / dt / 4.0
+            if q_new < lo:
+                q_new = lo
+            elif q_new > hi:
+                q_new = hi
+            new_qy[i, j] = q_new
+
+    # --- continuity + rain + infiltration + sink + open boundary ---
+    vol_infil = 0.0
+    vol_sink = 0.0
+    for i in nb.prange(h):
+        row_infil = 0.0
+        row_sink = 0.0
+        for j in range(w):
+            d = depth[i, j]
+            if j >= 1:
+                d += new_qx[i, j - 1] * dt / res
+            if j < w - 1:
+                d -= new_qx[i, j] * dt / res
+            if i >= 1:
+                d += new_qy[i - 1, j] * dt / res
+            if i < h - 1:
+                d -= new_qy[i, j] * dt / res
+
+            if raining:
+                d += rain_ms * dt
+
+            im = infil_ms[i, j]
+            if im > 0.0:
+                cap = im * dt
+                di = d if d < cap else cap
+                d -= di
+                row_infil += di
+
+            if sink_mask[i, j]:
+                row_sink += d
+                d = 0.0
+
+            if i == 0 or i == h - 1 or j == 0 or j == w - 1:
+                d = 0.0
+            if d < 0.0:
+                d = 0.0
+
+            new_depth[i, j] = d
+            if d > max_depth[i, j]:
+                max_depth[i, j] = d
+        vol_infil += row_infil
+        vol_sink += row_sink
+
+    return new_depth, new_qx, new_qy, vol_infil * cell_area, vol_sink * cell_area
 
 
 def simulate(dem, rain_mmh, duration, save_every, out_dir,
@@ -34,9 +144,9 @@ def simulate(dem, rain_mmh, duration, save_every, out_dir,
     qy = np.zeros((h - 1, w), dtype=np.float64)
 
     rain_ms = rain_mmh / 1000.0 / 3600.0            # m/s of water column
-    infil_ms = None
-    if infil_mmh is not None:
-        infil_ms = infil_mmh / 1000.0 / 3600.0
+    infil_ms = (infil_mmh / 1000.0 / 3600.0 if infil_mmh is not None
+                else np.zeros((h, w), dtype=np.float64))
+    sink_mask = sink if sink is not None else np.zeros((h, w), dtype=np.bool_)
     rain_stop = duration if rain_stop is None else rain_stop
 
     os.makedirs(out_dir, exist_ok=True)
@@ -51,60 +161,16 @@ def simulate(dem, rain_mmh, duration, save_every, out_dir,
         hmax = depth.max()
         dt = min(alpha * res / np.sqrt(g * max(hmax, 0.01)), 5.0)
         dt = min(dt, duration - t + 1e-9)
+        raining = t < rain_stop
 
-        # --- momentum: x faces ---
-        zl, zr = dem[:, :-1] + depth[:, :-1], dem[:, 1:] + depth[:, 1:]
-        hflow = np.maximum(zl, zr) - np.maximum(dem[:, :-1], dem[:, 1:])
-        hflow = np.maximum(hflow, 0.0)
-        slope = (zl - zr) / res
-        active = hflow > h_min
-        qn = np.zeros_like(qx)
-        hf = np.where(active, hflow, 1.0)
-        qn = (qx + g * hf * dt * slope) / (
-            1.0 + g * dt * n_manning ** 2 * np.abs(qx) / hf ** (10.0 / 3.0))
-        qx = np.where(active, qn, 0.0)
-
-        # --- momentum: y faces (row 0 is north; +y flow = toward row 0) ---
-        zt, zb = dem[:-1, :] + depth[:-1, :], dem[1:, :] + depth[1:, :]
-        hflow = np.maximum(zt, zb) - np.maximum(dem[:-1, :], dem[1:, :])
-        hflow = np.maximum(hflow, 0.0)
-        slope = (zt - zb) / res
-        active = hflow > h_min
-        hf = np.where(active, hflow, 1.0)
-        qn = (qy + g * hf * dt * slope) / (
-            1.0 + g * dt * n_manning ** 2 * np.abs(qy) / hf ** (10.0 / 3.0))
-        qy = np.where(active, qn, 0.0)
-
-        # --- flux limiter: never drain more than the donor cell holds ---
-        # (keeps the scheme stable on stairs/steep steps)
-        out_x = np.clip(qx, -depth[:, 1:] * res / dt / 4, depth[:, :-1] * res / dt / 4)
-        out_y = np.clip(qy, -depth[1:, :] * res / dt / 4, depth[:-1, :] * res / dt / 4)
-        qx, qy = out_x, out_y
-
-        # --- continuity ---
-        dv = np.zeros_like(depth)
-        dv[:, :-1] -= qx * dt / res
-        dv[:, 1:] += qx * dt / res
-        dv[:-1, :] -= qy * dt / res
-        dv[1:, :] += qy * dt / res
-        depth += dv
-
-        if t < rain_stop:
-            depth += rain_ms * dt
+        depth, qx, qy, d_infil, d_sink = _step_kernel(
+            dem, depth, qx, qy, max_depth, dt, res, g, n_manning, h_min,
+            rain_ms, raining, infil_ms, sink_mask, cell_area)
+        if raining:
             vol_in += rain_ms * dt * depth.size * cell_area
-        if infil_ms is not None:
-            di = np.minimum(depth, infil_ms * dt)
-            depth -= di
-            vol_infil += di.sum() * cell_area
-        if sink is not None:
-            vol_sink += depth[sink].sum() * cell_area
-            depth[sink] = 0.0
+        vol_infil += d_infil
+        vol_sink += d_sink
 
-        # open boundary: water leaves at grid edge
-        depth[0, :] = depth[-1, :] = depth[:, 0] = depth[:, -1] = 0.0
-        np.maximum(depth, 0.0, out=depth)
-
-        np.maximum(max_depth, depth, out=max_depth)
         # velocity magnitude at cell centers (for hazard maps)
         if it % 10 == 0:
             vx = np.zeros_like(depth)

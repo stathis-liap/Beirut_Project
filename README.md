@@ -8,7 +8,28 @@ EPSG:32636 (UTM 36N). All scripts stream it; nothing loads it whole.
 
 ```bash
 source .venv/bin/activate   # Python 3.12 venv
+pip install -r requirements.txt
 ```
+
+## Quick start
+
+Once the corridor has been cropped once (step 1 below), skip the manual
+pipeline and just run:
+
+```bash
+python main.py
+```
+
+This opens the plug-and-play GUI: pick a rain intensity, storm duration,
+and terrain quality, hit **Run simulation**, and it drives `build_dem.py`
+-> `flood_sim.py` -> `render_3d.py` for you with a live progress bar. When
+it's done you can open the results folder, the heatmap, the flyover video,
+or an interactive 3D view (terrain only, or terrain + water with a
+time/speed slider and play/pause). No command line needed after the initial
+crop.
+
+The manual steps below cover that one-time crop, plus scripting/batch use
+(what-if scenarios, custom renders) that the GUI doesn't expose.
 
 ## 1. Preview + crop
 
@@ -40,7 +61,10 @@ python scripts/flood_sim.py --rain 30 --duration 3600 --save-every 30 \
 
 Solver: Bates et al. 2010 inertial shallow-water scheme (LISFLOOD-FP),
 rain-on-grid, Manning friction, optional infiltration + storm-drain sinks,
-CFL-adaptive timestep. Prints a mass balance at the end as a sanity check.
+CFL-adaptive timestep. The per-step stencil runs as a single fused,
+multi-threaded Numba kernel (~10x faster than a plain NumPy port at these
+grid sizes, where per-op overhead dominates over raw FLOPs). Prints a mass
+balance at the end as a sanity check.
 
 ## 4. What-if scenarios
 

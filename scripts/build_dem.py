@@ -42,7 +42,8 @@ def grid_points(header, res, z_percentile=10):
     count = np.zeros(h * w, dtype=np.int64)
     rgb_sum = np.zeros((h * w, 3), dtype=np.float64)
 
-    for _, pts in iter_chunks(header, chunk_points=10_000_000):
+    n = header.n_points_in_file
+    for i, pts in iter_chunks(header, chunk_points=10_000_000):
         x, y = header.scale_xy(pts)
         z = (pts["Z"] * header.sz + header.oz).astype(np.float32)
         col = np.clip(((x - minx) / res).astype(np.int64), 0, w - 1)
@@ -52,10 +53,12 @@ def grid_points(header, res, z_percentile=10):
         np.add.at(count, idx, 1)
         for ci, ch in enumerate(("red", "green", "blue")):
             np.add.at(rgb_sum[:, ci], idx, pts[ch].astype(np.float64))
+        print(f"\r  pass 1/2: {100 * (i + len(pts)) / n:5.1f}%", end="", flush=True)
+    print()
 
     # Second pass: percentile-like floor = min of points within 30cm of cell
     # minimum, which rejects isolated low-noise points.
-    for _, pts in iter_chunks(header, chunk_points=10_000_000):
+    for i, pts in iter_chunks(header, chunk_points=10_000_000):
         x, y = header.scale_xy(pts)
         z = (pts["Z"] * header.sz + header.oz).astype(np.float32)
         col = np.clip(((x - minx) / res).astype(np.int64), 0, w - 1)
@@ -63,6 +66,8 @@ def grid_points(header, res, z_percentile=10):
         idx = row * w + col
         near_floor = z <= (zmin[idx] + 0.30)
         np.minimum.at(zlow, idx[near_floor], z[near_floor])
+        print(f"\r  pass 2/2: {100 * (i + len(pts)) / n:5.1f}%", end="", flush=True)
+    print()
 
     covered = count > 0
     dem = np.where(covered, zlow, np.nan).reshape(h, w)
