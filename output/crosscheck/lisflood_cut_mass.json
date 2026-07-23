@@ -1,0 +1,12 @@
+{
+  "file": "output/export_cut/results/res.mass",
+  "t_end_s": 3600.004,
+  "volume_m3": 76018.0163,
+  "rain_m3": 13053.0384,
+  "inflow_m3": 0.0,
+  "input_m3": 13053.0,
+  "verror_m3": -0.0,
+  "vol_over_input": 5.824,
+  "rel_mass_error": 0.0,
+  "verdict": "MASS FAIL (engine diverged)"
+}

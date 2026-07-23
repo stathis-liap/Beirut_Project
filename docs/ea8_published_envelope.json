@@ -1,0 +1,22 @@
+{
+  "_source": "Neelz & Pender (2013), 'Benchmarking the latest generation of 2D hydraulic modelling packages', Environment Agency report SC120002, Figures 4.41 (p.101) and 4.42 (p.102) - water level time series at Test 8A points 1, 2, 3 and 6 for 19 modelling packages. Local copy: ~/Work/engines/ea_benchmark/SC120002_benchmark_report.pdf",
+  "_method": "Bands READ OFF THE PUBLISHED FIGURES BY EYE, not digitised - treat as +/- 0.01-0.02 m. Replace with a WebPlotDigitizer trace of the same four panels before quoting these numbers in a deliverable.",
+  "_scope": "Only points 1, 2, 3 and 6 have published curves; the report shows no time series for points 4, 5, 7, 8 and 9.",
+  "_bands": "cluster_* excludes the 0-term packages (RFSM Direct, ISIS Fast) and ISIS Fast Dynamic, which the report itself describes as approximate representations; all_* is the full spread across every package shown.",
+  "bed_elevation_m": {
+    "_source": "elev column of the LISFLOOD-FP .stage output header",
+    "P1": 27.11, "P2": 28.55, "P3": 23.6824, "P6": 26.92
+  },
+  "peak_water_level_m": {
+    "P1": {"cluster_min": 27.66, "cluster_max": 27.70, "all_min": 27.54, "all_max": 27.78},
+    "P2": {"cluster_min": 28.78, "cluster_max": 28.82, "all_min": 28.72, "all_max": 28.82},
+    "P3": {"cluster_min": 24.33, "cluster_max": 24.41, "all_min": 24.26, "all_max": 24.41},
+    "P6": {"cluster_min": 26.98, "cluster_max": 27.07, "all_min": 26.94, "all_max": 27.07}
+  },
+  "peak_depth_m": {
+    "P1": {"cluster_min": 0.55, "cluster_max": 0.59, "all_min": 0.43, "all_max": 0.67},
+    "P2": {"cluster_min": 0.23, "cluster_max": 0.27, "all_min": 0.17, "all_max": 0.27},
+    "P3": {"cluster_min": 0.648, "cluster_max": 0.728, "all_min": 0.578, "all_max": 0.728},
+    "P6": {"cluster_min": 0.06, "cluster_max": 0.15, "all_min": 0.02, "all_max": 0.15}
+  }
+}

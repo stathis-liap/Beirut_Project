@@ -1,0 +1,11 @@
+{
+  "name": "infiltration_strip",
+  "_comment": "Replace polygon coords with real ones from: python scripts/scenario.py draw",
+  "edits": [
+    {
+      "op": "infiltrate",
+      "mmh": 60,
+      "polygon": [[732900.0, 3753300.0], [733000.0, 3753300.0], [733000.0, 3753400.0], [732900.0, 3753400.0]]
+    }
+  ]
+}

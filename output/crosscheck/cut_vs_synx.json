@@ -1,0 +1,12 @@
+{
+  "cells_interior": 1972473,
+  "wet_area_ours_m2": 221392.0,
+  "wet_area_theirs_m2": 158293.0,
+  "extent_iou_gt10cm": 0.611,
+  "depth_corr_wet": 0.875,
+  "rmse_wet_m": 0.111,
+  "bias_ours_minus_theirs_m": 0.05,
+  "p99_ours": 1.101,
+  "p99_theirs": 1.275,
+  "verdict": "DIVERGE - investigate"
+}

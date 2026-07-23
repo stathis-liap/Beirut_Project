@@ -1,0 +1,10 @@
+{
+  "crs": "EPSG:32636",
+  "minx": 731808.1750927734,
+  "miny": 3752723.476220703,
+  "res": 1.0,
+  "width": 2916,
+  "height": 2066,
+  "maxy": 3754789.476220703,
+  "stack": "/home/stathisliap/Work/Beirut_Project/output/stack_1.0"
+}

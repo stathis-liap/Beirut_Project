@@ -1,0 +1,10 @@
+{
+  "crs": "EPSG:32636",
+  "minx": 733052.336704055,
+  "miny": 3752959.064329005,
+  "res": 0.5,
+  "width": 738,
+  "height": 1670,
+  "maxy": 3753794.064329005,
+  "source_las": "/home/stathisliap/Work/Beirut_Project/data/corridor.las"
+}

@@ -1,0 +1,64 @@
+{
+  "peak_depth_m": {
+    "P1": {
+      "ours": 0.579,
+      "lisflood": 0.567,
+      "published_cluster": [
+        0.55,
+        0.59
+      ],
+      "ours_verdict": "in cluster",
+      "lisflood_verdict": "in cluster"
+    },
+    "P2": {
+      "ours": 0.239,
+      "lisflood": 0.211,
+      "published_cluster": [
+        0.23,
+        0.27
+      ],
+      "ours_verdict": "in cluster",
+      "lisflood_verdict": "in full spread"
+    },
+    "P3": {
+      "ours": 0.727,
+      "lisflood": 0.709,
+      "published_cluster": [
+        0.648,
+        0.728
+      ],
+      "ours_verdict": "in cluster",
+      "lisflood_verdict": "in cluster"
+    },
+    "P4": {
+      "ours": 0.131,
+      "lisflood": 0.181
+    },
+    "P5": {
+      "ours": 0.261,
+      "lisflood": 0.274
+    },
+    "P6": {
+      "ours": 0.064,
+      "lisflood": 0.061,
+      "published_cluster": [
+        0.06,
+        0.15
+      ],
+      "ours_verdict": "in cluster",
+      "lisflood_verdict": "in cluster"
+    },
+    "P7": {
+      "ours": 0.241,
+      "lisflood": 0.275
+    },
+    "P8": {
+      "ours": 0.271,
+      "lisflood": 0.093
+    },
+    "P9": {
+      "ours": 0.199,
+      "lisflood": 0.173
+    }
+  }
+}

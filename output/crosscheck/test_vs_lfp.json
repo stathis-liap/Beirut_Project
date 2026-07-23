@@ -1,0 +1,12 @@
+{
+  "cells_interior": 336400,
+  "wet_area_ours_m2": 32829.0,
+  "wet_area_theirs_m2": 36896.0,
+  "extent_iou_gt10cm": 0.807,
+  "depth_corr_wet": 0.845,
+  "rmse_wet_m": 0.085,
+  "bias_ours_minus_theirs_m": -0.025,
+  "p99_ours": 0.756,
+  "p99_theirs": 0.785,
+  "verdict": "CONSISTENT (within inter-model tolerance)"
+}

@@ -1,0 +1,12 @@
+{
+  "file": "output/ea8/lisflood/results/ea8-2m.mass",
+  "t_end_s": 18000.145,
+  "volume_m3": 11945.1265,
+  "rain_m3": 7653.2658,
+  "inflow_m3": 4291.8,
+  "input_m3": 11945.1,
+  "verror_m3": 0.0,
+  "vol_over_input": 1.0,
+  "rel_mass_error": 0.0,
+  "verdict": "MASS OK"
+}

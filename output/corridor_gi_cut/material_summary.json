@@ -1,0 +1,23 @@
+{
+  "class_labels": {
+    "0": "(none)",
+    "1": "vehicular lane",
+    "2": "porous bikelane",
+    "3": "bioswale",
+    "4": "porous sidewalk",
+    "5": "garden",
+    "6": "bioretention pond / rain garden",
+    "7": "terrace"
+  },
+  "cell_area_m2": 0.25,
+  "areas_m2": {
+    "(none)": 642768,
+    "vehicular lane": 2124,
+    "porous bikelane": 2210,
+    "bioswale": 2221,
+    "porous sidewalk": 3028,
+    "garden": 14689,
+    "bioretention pond / rain garden": 762,
+    "terrace": 2552
+  }
+}

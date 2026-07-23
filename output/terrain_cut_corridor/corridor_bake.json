@@ -1,0 +1,50 @@
+{
+  "source": "output/terrain_cut_0.5",
+  "material": "output/corridor_gi_cut/material.npy",
+  "props": {
+    "1": [
+      5.0,
+      0.016,
+      0.0,
+      "vehicular lane"
+    ],
+    "2": [
+      150.0,
+      0.02,
+      0.0,
+      "porous bikelane"
+    ],
+    "3": [
+      200.0,
+      0.15,
+      0.15,
+      "bioswale"
+    ],
+    "4": [
+      150.0,
+      0.02,
+      0.0,
+      "porous sidewalk"
+    ],
+    "5": [
+      100.0,
+      0.1,
+      0.0,
+      "garden"
+    ],
+    "6": [
+      250.0,
+      0.2,
+      0.4,
+      "bioretention pond / rain garden"
+    ],
+    "7": [
+      100.0,
+      0.12,
+      0.1,
+      "terrace"
+    ]
+  },
+  "cells_changed": 110343,
+  "area_m2": 27586
+}

@@ -1,0 +1,23 @@
+{
+  "name": "v1_nov2025",
+  "note": "observed 25 Nov 2025: 25.4 mm/30 min, 22.2 mm/15 min core; flooded Sassine Sq + Ring with drains clogged",
+  "steps": [
+    [
+      0,
+      450,
+      12.8
+    ],
+    [
+      450,
+      1350,
+      88.8
+    ],
+    [
+      1350,
+      1800,
+      12.8
+    ]
+  ],
+  "total_mm": 25.4,
+  "duration": 3600.0
+}

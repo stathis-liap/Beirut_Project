@@ -1,0 +1,13 @@
+{
+  "name": "flat30",
+  "note": "legacy demo storm (constant 30 mm/h, 1 h)",
+  "steps": [
+    [
+      0,
+      3600,
+      30.0
+    ]
+  ],
+  "total_mm": 30.0,
+  "duration": 5400.0
+}
