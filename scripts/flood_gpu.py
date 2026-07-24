@@ -38,7 +38,7 @@ def simulate(dem, res, steps, duration, out_dir, *, manning=0.03,
              infil_mmh=None, valid=None, water=None, rain_weight=None,
              drains=None, gauges=None, sources=None, save_every=60.0, device="auto",
              alpha=0.7, h_min=1e-4, save_frames=True, init_depth=None,
-             progress=True, dtype="float32", limiter="scale"):
+             progress=True, dtype="float32", limiter="scale", progress_cb=None):
     """steps: list of (t0_s, t1_s, mm/h). drains: (rows, cols, cap_m3s)
     arrays. gauges: list of {'name','row','col'}. sources: list of
     {'row','col','series': [[t_s, q_m3s], ...]} point inflows, linearly
@@ -49,7 +49,12 @@ def simulate(dem, res, steps, duration, out_dir, *, manning=0.03,
     exports more volume than it holds - mass-conserving positivity fix
     that does not cap physical velocities. 'clip4' reproduces the legacy
     flood_sim.py clip (q <= h*res/4dt) exactly, for reference comparison
-    only - it suppresses velocities whenever v > sqrt(g*hmax)/(4*alpha)."""
+    only - it suppresses velocities whenever v > sqrt(g*hmax)/(4*alpha).
+
+    progress_cb: optional callable(t, duration, stats_dict) invoked at each
+    save_every tick (stats_dict has storage_m3, outflow_m3, max_h, wall_s);
+    used by the interactive sandbox to relay live progress, no effect on
+    the simulation itself."""
     import torch
     if device == "auto":
         device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -240,6 +245,9 @@ def simulate(dem, res, steps, duration, out_dir, *, manning=0.03,
                       f"max_h={hmax:5.2f} storage={storage:9.0f}m3 "
                       f"out={vol_out:8.0f}m3 [{time.time() - t0_wall:5.0f}s wall]",
                       flush=True)
+            if progress_cb is not None:
+                progress_cb(t, duration, {"storage_m3": storage, "outflow_m3": vol_out,
+                                          "max_h": hmax, "wall_s": time.time() - t0_wall})
             next_save += save_every
             si += 1
         t += dt

@@ -35,3 +35,8 @@ __pycache__/
 *.pyc
 .venv/
 .venv_synxflow/
+
+# Sandbox frontend build artifacts and runtime data
+webui/node_modules/
+webui/dist/
+output/sandbox/

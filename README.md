@@ -127,6 +127,37 @@ pip install numpy scipy torch rasterio shapely matplotlib pillow laspy lazrs
 Add `--device cpu` to any simulation command to force CPU. The LiDAR scripts
 stream in chunks; pass `--workers 4` on memory-constrained machines.
 
+## Interactive sandbox
+
+A browser tool where a planner or engineer sculpts the corridor terrain,
+paints materials with a brush, configures rain and runs/compares
+simulations — no command line required. It wraps the same solver and
+bake logic used by the pipeline above (a design with no edits reproduces
+the pipeline's own results bit-for-bit).
+
+![Sandbox: painting materials and sculpting terrain in the browser](docs/img/sandbox_screenshot.png)
+
+```bash
+# one-time setup
+/home/stathisliap/Work/.venv/bin/pip install fastapi "uvicorn[standard]" pillow
+cd webui && npm install && cd ..
+
+# dev (two terminals): backend --------------------------------------------
+/home/stathisliap/Work/.venv/bin/uvicorn sandbox.server:app --reload --port 8008
+# frontend -----------------------------------------------------------------
+cd webui && npm run dev   # open http://localhost:5173
+
+# production (one command, after building the frontend once): -------------
+bash sandbox/run.sh       # open http://localhost:8008
+```
+
+Paint a material or sculpt the ground, pick a storm (or draw a custom one),
+press Run, and compare before/after in the Results tab — everything is
+editable through the official Al-Masar zone by default, with an "unlock
+full domain" toggle for wider experiments. The full implementation guide
+(architecture, data contracts, API reference) is at
+**[docs/SANDBOX_GUIDE.md](docs/SANDBOX_GUIDE.md)**.
+
 ## Modelling notes
 
 - **Elevations are ellipsoidal**; the local sea surface sits near +26 m, so
