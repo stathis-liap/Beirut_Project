@@ -69,6 +69,16 @@ def hazard_png(max_hazard, max_depth, depth_thr=0.10):
     return _png_bytes(rgba)
 
 
+def erosion_png(erosion_accum, thr=0.02):
+    """Colormapped "how muddy did this cell get" RGBA PNG (YlOrBr - pale dry
+    soil to dark mud), for runs made with erosion=True. erosion_accum is the
+    solver's own [0,1] final_erosion.npy - not a separate rendering scale."""
+    x = np.clip(erosion_accum, 0, 1)
+    rgba = (colormaps["YlOrBr"](x) * 255).astype(np.uint8)
+    rgba[..., 3] = np.where(erosion_accum > thr, 210, 0).astype(np.uint8)
+    return _png_bytes(rgba)
+
+
 def diff_png(depth_b, depth_a, vmax, thr=0.02):
     """Diverging depth_b - depth_a map (RdBu_r, matching render2d.py): blue =
     shallower in b, red = deeper in b."""

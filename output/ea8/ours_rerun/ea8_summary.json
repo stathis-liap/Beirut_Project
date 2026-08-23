@@ -1,0 +1,51 @@
+{
+  "peak_depth_m": {
+    "P1": {
+      "ours": 0.579,
+      "published_cluster": [
+        0.55,
+        0.59
+      ],
+      "ours_verdict": "in cluster"
+    },
+    "P2": {
+      "ours": 0.239,
+      "published_cluster": [
+        0.23,
+        0.27
+      ],
+      "ours_verdict": "in cluster"
+    },
+    "P3": {
+      "ours": 0.726,
+      "published_cluster": [
+        0.648,
+        0.728
+      ],
+      "ours_verdict": "in cluster"
+    },
+    "P4": {
+      "ours": 0.102
+    },
+    "P5": {
+      "ours": 0.261
+    },
+    "P6": {
+      "ours": 0.064,
+      "published_cluster": [
+        0.06,
+        0.15
+      ],
+      "ours_verdict": "in cluster"
+    },
+    "P7": {
+      "ours": 0.241
+    },
+    "P8": {
+      "ours": 0.267
+    },
+    "P9": {
+      "ours": 0.194
+    }
+  }
+}

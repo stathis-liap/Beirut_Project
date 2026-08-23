@@ -46,7 +46,7 @@ def test_closed_box(device):
     rain_w = np.zeros((h, w), dtype=np.float32)
     rain_w[8:-8, 8:-8] = 1.0
     out = tmpdir()
-    meta = simulate(dem, 1.0, [(0, 600, 20.0)], 900, out, manning=0.03,
+    meta = simulate(dem, 1.0, [(0, 600, 20.0)], 900, out, manning=0.03, scheme=SCHEME,
                     rain_weight=rain_w, save_every=300, device=device,
                     save_frames=False, progress=False)
     err = abs(meta["vol_rain_m3"] -
@@ -71,7 +71,7 @@ def test_planar_runoff(device):
     rain_w = np.zeros((h, w), dtype=np.float32)
     rain_w[1:-1, 5:-5] = 1.0
     out = tmpdir()
-    meta = simulate(dem, res, [(0, 7200, i_mmh)], 7200, out, manning=n,
+    meta = simulate(dem, res, [(0, 7200, i_mmh)], 7200, out, manning=n, scheme=SCHEME,
                     rain_weight=rain_w, save_every=600, device=device,
                     save_frames=False, progress=False)
     A = rain_w.sum() * res * res
@@ -103,7 +103,7 @@ def test_lake_at_rest(device):
     wl = 2.0
     init = np.clip(wl - dem, 0, None).astype(np.float32)
     out = tmpdir()
-    simulate(dem, 1.0, [], 600, out, manning=0.03, init_depth=init,
+    simulate(dem, 1.0, [], 600, out, manning=0.03, init_depth=init, scheme=SCHEME,
              rain_weight=np.zeros_like(dem), save_every=600, device=device,
              save_frames=True, progress=False)
     mv = np.load(os.path.join(out, "max_vel.npy"))
@@ -165,10 +165,75 @@ def test_equivalence(device):
         shutil.rmtree(d, ignore_errors=True)
 
 
+def test_erosion_sanity(device):
+    """Opt-in erosion sub-model: (a) erosion=False must be bit-identical to
+    not passing any erosion kwarg at all - the "inert by construction" claim
+    that lets every other test above ignore this feature entirely; (b) with
+    erosion on, non-erodible cells must stay exactly zero (erodible masks
+    every increment) while erodible cells actually erode under flow;
+    (c) mass balance still closes to the same tolerance as test_closed_box,
+    confirming erosion needs no new volume term (it only ever changes
+    infiltration/Manning, never bed elevation or water volume)."""
+    print("== erosion sub-model: inert-off / bounded-on / mass still closes ==")
+    h, w = 200, 60
+    S, n, i_mmh, res = 0.02, 0.03, 60.0, 1.0
+    rows = np.arange(h)[:, None].astype(np.float32)
+    dem = ((h - 1 - rows) * S * res) * np.ones((1, w), dtype=np.float32)
+    dem[:, :5] += 30.0
+    dem[:, -5:] += 30.0            # side walls; open outflow at bottom edge
+    dem[0, :] += 30.0              # top wall
+    rain_w = np.zeros((h, w), dtype=np.float32)
+    rain_w[1:-1, 5:-5] = 1.0
+    common = dict(manning=n, rain_weight=rain_w, save_every=1800,
+                  save_frames=False, progress=False, device=device)
+
+    out_a, out_b = tmpdir(), tmpdir()
+    simulate(dem, res, [(0, 1800, i_mmh)], 1800, out_a, **common)
+    simulate(dem, res, [(0, 1800, i_mmh)], 1800, out_b, erosion=False, **common)
+    da = np.load(os.path.join(out_a, "max_depth.npy"))
+    db = np.load(os.path.join(out_b, "max_depth.npy"))
+    check("erosion=False is bit-identical to no erosion kwargs at all",
+          np.array_equal(da, db), f"max|d| {float(np.abs(da - db).max()):.3e}")
+
+    erodible = np.zeros((h, w), dtype=np.float32)
+    erodible[1:-1, 5:w // 2] = 1.0     # left half of the street erodible, right half not
+    out_c = tmpdir()
+    # loosened thresholds so this test erodes reliably regardless of how
+    # EROSION_DEFAULTS gets tuned later - it's testing the mechanism, not
+    # today's exact constants.
+    meta = simulate(dem, res, [(0, 1800, i_mmh)], 1800, out_c, erosion=True,
+                     erodible=erodible, erosion_seed=1,
+                     erosion_params=dict(p_crit=0.001, k_erode=0.5,
+                                         k_prob=200.0, update_every=5),
+                     **common)
+    erosion_np = np.load(os.path.join(out_c, "final_erosion.npy"))
+    max_off = float(erosion_np[erodible == 0].max())
+    max_on = float(erosion_np[erodible > 0].max())
+    check("non-erodible cells stay exactly zero", max_off == 0.0,
+          f"max on non-erodible {max_off:.4f}")
+    check("erodible cells actually eroded", max_on > 0.0,
+          f"max on erodible {max_on:.4f}")
+    rel = abs(meta["closure_rel"])
+    check("mass balance still closes with erosion on", rel < 1e-3,
+          f"closure_rel {rel:.2e}")
+    for d in (out_a, out_b, out_c):
+        shutil.rmtree(d, ignore_errors=True)
+
+
+SCHEME = "inertial"
+
+
 def main():
+    global SCHEME
     ap = argparse.ArgumentParser()
     ap.add_argument("--device", default="auto")
+    ap.add_argument("--scheme", default="inertial", choices=["inertial", "hllc"],
+                    help="which flux scheme to validate. The analytic tests are "
+                         "scheme-independent by construction, so both must pass "
+                         "them; run each before trusting a cross-scheme comparison")
     args = ap.parse_args()
+    SCHEME = args.scheme
+    print(f"scheme: {SCHEME}")
     import torch
     device = args.device
     if device == "auto":
@@ -180,6 +245,7 @@ def main():
     test_planar_runoff(device)
     test_lake_at_rest(device)
     test_equivalence(device)
+    test_erosion_sanity(device)
 
     if FAILURES:
         print(f"\n{len(FAILURES)} FAILURE(S): {FAILURES}")

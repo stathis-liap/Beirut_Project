@@ -92,6 +92,18 @@ def main():
     zone = zone_rings(args.zone)
     zmask = rasterize(zone, t, (h, w))
     building = masks["building"]; valid = masks["valid"]
+    # With flatten_corridor_buildings.py --defer-to-design the terrain is the
+    # "before" state, so the buildings the corridor demolishes are still in
+    # masks['building']. The ribbon must be laid out for the world AFTER they
+    # are cleared, otherwise `~building` below routes the corridor around
+    # buildings the design has already removed and punches the same holes the
+    # deferral was meant to keep out of it.
+    fm_path = os.path.join(args.terrain, "flatten_mask.npy")
+    if os.path.exists(fm_path):
+        cleared = np.load(fm_path)
+        building = building & ~cleared
+        print(f"corridor-cleared buildings taken as removed: "
+              f"{int(cleared.sum())*res*res/1e4:.2f} ha (deferred flatten)")
     # buildings inside the zone stay as buildings (not permeable)
     zmask &= valid
     print(f"zone cells (valid): {zmask.sum()} = {zmask.sum()*res*res/1e4:.1f} ha")

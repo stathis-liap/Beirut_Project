@@ -20,12 +20,32 @@ from flood_gpu import load_terrain
 from build_corridor_gi import rasterize, zone_rings
 from bake_corridor import PROPS as BAKE_PROPS
 
-TERRAIN_DIR = os.path.join(os.path.dirname(__file__), "..", "output", "terrain_cut_0.5")
+# Env overrides let a review session point the whole sandbox at scratch
+# terrain/material/data dirs (e.g. output/terrain_cut_0.5_v2, still under
+# review) without touching the live defaults or the designs saved against
+# them - unset, everything behaves exactly as before.
+TERRAIN_DIR = os.environ.get("SANDBOX_TERRAIN_DIR") or os.path.join(
+    os.path.dirname(__file__), "..", "output", "terrain_cut_0.5")
 ZONE_PATH = os.path.join(os.path.dirname(__file__), "..", "output", "masar_zone_official.json")
-SANDBOX_DIR = os.path.join(os.path.dirname(__file__), "..", "output", "sandbox")
+SANDBOX_DIR = os.environ.get("SANDBOX_DATA_DIR") or os.path.join(
+    os.path.dirname(__file__), "..", "output", "sandbox")
 STORMS_DIR = os.path.join(os.path.dirname(__file__), "..", "storms")
+
+_REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+
+
+def _opt_npy(terrain, name):
+    """Load an optional per-terrain layer, or None if this terrain has none."""
+    path = os.path.join(terrain, name)
+    return np.load(path) if os.path.exists(path) else None
+
+
+def _display_terrain_dir():
+    """TERRAIN_DIR as a repo-relative path, for the design metadata."""
+    p = os.path.abspath(TERRAIN_DIR)
+    return os.path.relpath(p, _REPO_ROOT) if p.startswith(_REPO_ROOT + os.sep) else p
 DESIGNS_DIR = os.path.join(SANDBOX_DIR, "designs")
-OFFICIAL_MATERIAL_PATH = os.path.join(
+OFFICIAL_MATERIAL_PATH = os.environ.get("SANDBOX_OFFICIAL_MATERIAL") or os.path.join(
     os.path.dirname(__file__), "..", "output", "corridor_gi_cut", "material.npy")
 
 # Swatch colors for the seven literature-grounded materials in bake_corridor.PROPS.
@@ -41,7 +61,7 @@ DEM_DELTA_LIMIT_M = 3.0
 class Base:
     def __init__(self, terrain=TERRAIN_DIR, zone_path=ZONE_PATH, cache_dir=SANDBOX_DIR):
         (self.dem, self.t, self.masks, self.manning,
-         self.infil, self.rain_w, self.gauges) = load_terrain(terrain)
+         self.infil, self.rain_w, self.gauges, self.erodible) = load_terrain(terrain)
         self.terrain = terrain
         self.h, self.w = self.dem.shape
 
@@ -54,9 +74,23 @@ class Base:
             self.zone = rasterize(rings, self.t, self.dem.shape)
             np.save(zone_cache, self.zone)
 
+        # Deferred building clearing (flatten_corridor_buildings.py
+        # --defer-to-design). The terrain on disk is the "before" world with
+        # every building standing; these say what the green corridor removes
+        # when it is loaded, so the sandbox can show a real before/after
+        # instead of a "before" that was already cleared.
+        self.flatten_delta = _opt_npy(terrain, "flatten_delta.npy")
+        self.flatten_mask = _opt_npy(terrain, "flatten_mask.npy")
+        # rain rerouting differs once the roofs are gone - a cleared lot catches
+        # its own rain instead of feeding a downspout that no longer exists.
+        self.rain_w_cleared = _opt_npy(terrain, "rain_weight_cleared.npy")
+
         valid, building, water = self.masks["valid"], self.masks["building"], self.masks["water"]
-        self.editable_zone = self.zone & valid & ~building
-        self.editable_full = valid & ~building & ~water
+        # cells the corridor clears are editable ground once it is loaded, even
+        # though they are still buildings in the base masks
+        cleared = self.flatten_mask if self.flatten_mask is not None else np.zeros_like(valid)
+        self.editable_zone = self.zone & valid & (~building | cleared)
+        self.editable_full = valid & (~building | cleared) & ~water
 
         lo = float(np.nanmin(self.dem[valid]))
         hi = float(np.nanmax(self.dem[valid]))
@@ -115,10 +149,11 @@ def design_sha256(design):
 def default_materials():
     """Fresh copy of the seven built-in materials, seeded from bake_corridor.PROPS."""
     materials = []
-    for cls, (infil, n, depr, label) in BAKE_PROPS.items():
+    for cls, (infil, n, depr, erod, label) in BAKE_PROPS.items():
         materials.append({
             "id": cls, "label": label, "color": MATERIAL_COLORS.get(cls, "#999999"),
             "infil_mmh": float(infil), "manning_n": float(n), "depression_m": float(depr),
+            "erodible_frac": float(erod),
             "builtin": True,
         })
     return {"materials": materials}
@@ -135,6 +170,7 @@ def clamp_materials(materials_list):
             "infil_mmh": float(min(max(m["infil_mmh"], 0.0), 1000.0)),
             "manning_n": float(min(max(m["manning_n"], 0.01), 0.5)),
             "depression_m": float(min(max(m["depression_m"], 0.0), 1.0)),
+            "erodible_frac": float(min(max(m.get("erodible_frac", 0.0), 0.0), 1.0)),
             "builtin": bool(m.get("builtin", False)),
         })
     return {"materials": out}
@@ -148,6 +184,12 @@ class Design:
     materials: dict           # {"materials": [...]}
     notes: str = ""
     unlocked: bool = False
+    # True when this design demolishes the buildings in the corridor's path
+    # (the official green-corridor template). Kept as an explicit flag rather
+    # than inferred from dem_delta, which the user can also sculpt: it decides
+    # which rain-rerouting raster a run uses, and that has to stay correct
+    # after any amount of editing.
+    clears_buildings: bool = False
     created: str = ""
     modified: str = ""
     dirty: bool = False
@@ -157,7 +199,13 @@ class Design:
             "design": {
                 "name": self.name, "notes": self.notes,
                 "created": self.created, "modified": self.modified,
-                "base_terrain": "output/terrain_cut_0.5", "unlocked": self.unlocked,
+                # the real dir, not a hardcoded label: under a
+                # SANDBOX_TERRAIN_DIR override this is the one field telling a
+                # reviewer which terrain they are actually looking at, and
+                # reporting the default here made a review session against
+                # scratch terrain look indistinguishable from the live one.
+                "base_terrain": _display_terrain_dir(), "unlocked": self.unlocked,
+                "clears_buildings": self.clears_buildings,
             },
             "materials": self.materials,
         }
@@ -239,6 +287,7 @@ class DesignStore:
                     name=name, material=material, dem_delta=dem_delta,
                     materials=materials, notes=meta.get("notes", ""),
                     unlocked=meta.get("unlocked", False),
+                    clears_buildings=meta.get("clears_buildings", False),
                     created=meta.get("created", ts), modified=meta.get("modified", ts))
             except Exception as e:
                 print(f"[sandbox] skipping broken design '{name}': {e}")
@@ -256,6 +305,7 @@ class DesignStore:
             if name in self.designs:
                 raise KeyError(f"design '{name}' already exists")
             h, w = self.base.h, self.base.w
+            clears_buildings = False
             if template == "blank":
                 material = np.zeros((h, w), np.uint16)
                 dem_delta = np.zeros((h, w), np.float32)
@@ -264,16 +314,26 @@ class DesignStore:
                 material = np.load(OFFICIAL_MATERIAL_PATH).astype(np.uint16)
                 dem_delta = np.zeros((h, w), np.float32)
                 materials = default_materials()
+                # Building the corridor is what demolishes the buildings in its
+                # path. The clearing is deliberately NOT folded into dem_delta:
+                # that array is the user's own sculpting and is clamped to
+                # +/-DEM_DELTA_LIMIT_M per cell, so a 25 m demolition stored
+                # there would be clipped back to 3 m the moment anyone sculpted
+                # the cleared lot - the building would visibly grow back. It
+                # stays a base-terrain layer that this flag switches on.
+                clears_buildings = self.base.flatten_delta is not None
             elif template in self.designs:
                 src = self.designs[template]
                 material = src.material.copy()
                 dem_delta = src.dem_delta.copy()
                 materials = copy.deepcopy(src.materials)
+                clears_buildings = src.clears_buildings
             else:
                 raise ValueError(f"unknown template '{template}'")
             ts = now_iso()
             design = Design(name=name, material=material, dem_delta=dem_delta,
-                             materials=materials, created=ts, modified=ts)
+                             materials=materials, created=ts, modified=ts,
+                             clears_buildings=clears_buildings)
             self.designs[name] = design
             _save_design_to_disk(self.root, design)
             return design

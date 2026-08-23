@@ -1,0 +1,95 @@
+{
+  "test": "EA 8-test suite, Test 4",
+  "scheme": "hllc",
+  "res_m": 5.0,
+  "cross_section_1h": [
+    {
+      "x_m": 25,
+      "ours_m": 0.36669921875,
+      "published": [
+        0.32,
+        0.46
+      ],
+      "in_cluster": true
+    },
+    {
+      "x_m": 50,
+      "ours_m": 0.30615234375,
+      "published": [
+        0.29,
+        0.36
+      ],
+      "in_cluster": true
+    },
+    {
+      "x_m": 100,
+      "ours_m": 0.2425537109375,
+      "published": [
+        0.25,
+        0.29
+      ],
+      "in_cluster": true
+    },
+    {
+      "x_m": 150,
+      "ours_m": 0.203125,
+      "published": [
+        0.21,
+        0.25
+      ],
+      "in_cluster": true
+    },
+    {
+      "x_m": 200,
+      "ours_m": 0.1717529296875,
+      "published": [
+        0.18,
+        0.21
+      ],
+      "in_cluster": true
+    },
+    {
+      "x_m": 250,
+      "ours_m": 0.1434326171875,
+      "published": [
+        0.15,
+        0.18
+      ],
+      "in_cluster": true
+    },
+    {
+      "x_m": 300,
+      "ours_m": 0.1153564453125,
+      "published": [
+        0.11,
+        0.14
+      ],
+      "in_cluster": true
+    },
+    {
+      "x_m": 350,
+      "ours_m": 0.0848388671875,
+      "published": [
+        0.06,
+        0.1
+      ],
+      "in_cluster": true
+    },
+    {
+      "x_m": 400,
+      "ours_m": 0.047149658203125,
+      "published": [
+        0.0,
+        0.04
+      ],
+      "in_cluster": true
+    }
+  ],
+  "front_0p15m": {
+    "t_1h": 237.5,
+    "t_3h": 492.5
+  },
+  "closure_rel": 4.5e-05,
+  "in_cluster": "9/9",
+  "caveat": "published spread read from Figure 4.13 by eye, not from the EA result files"
+}

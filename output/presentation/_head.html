@@ -1,0 +1,53 @@
+<title>Rain on Beirut</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:wght@400;600&display=swap">
+<style>
+:root{--ground:#F2F4F3;--surface:#fff;--sunken:#E7EBEA;--ink:#16232B;--muted:#5C6B73;
+--hair:#D3DAD9;--accent:#0E7C86;--accent-w:#0E7C8614;--warn:#B26B2E;--crit:#A03E3E;
+--fd:"IBM Plex Serif",Georgia,serif;--fb:"IBM Plex Sans",Helvetica,Arial,sans-serif;
+--fm:"IBM Plex Mono",ui-monospace,Menlo,monospace;}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--ground:#0E1518;
+--surface:#161F23;--sunken:#1D282D;--ink:#E4EBEC;--muted:#8FA3AB;--hair:#2A383E;
+--accent:#3FB3BD;--accent-w:#3FB3BD1F;--warn:#D9944A;--crit:#D06A6A;}}
+:root[data-theme="dark"]{--ground:#0E1518;--surface:#161F23;--sunken:#1D282D;--ink:#E4EBEC;
+--muted:#8FA3AB;--hair:#2A383E;--accent:#3FB3BD;--accent-w:#3FB3BD1F;--warn:#D9944A;--crit:#D06A6A;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--ground);color:var(--ink);font-family:var(--fb);
+font-size:16px;line-height:1.62;-webkit-font-smoothing:antialiased}
+.wrap{max-width:56rem;margin:0 auto;padding:4rem 1.4rem 6rem;display:flex;flex-direction:column;gap:3.5rem}
+.eyebrow{font-family:var(--fm);font-size:.7rem;letter-spacing:.14em;text-transform:uppercase;
+color:var(--accent);margin:0 0 .8rem}
+h1{font-family:var(--fd);font-weight:600;font-size:clamp(2.1rem,5.5vw,3rem);line-height:1.1;
+letter-spacing:-.02em;margin:0 0 1rem;text-wrap:balance}
+.stand{font-size:1.08rem;color:var(--muted);max-width:44rem;margin:0}
+h2{font-family:var(--fd);font-weight:600;font-size:1.5rem;margin:0 0 .3rem;letter-spacing:-.01em}
+.sublede{color:var(--muted);margin:0 0 1.4rem;font-size:.97rem}
+h3{font-family:var(--fd);font-weight:600;font-size:1.08rem;margin:0 0 .5rem}
+section{display:flex;flex-direction:column}
+p{margin:0 0 1rem}p:last-child{margin-bottom:0}
+.num{font-family:var(--fm);font-variant-numeric:tabular-nums}
+code{font-family:var(--fm);font-size:.86em;background:var(--sunken);padding:.1em .36em;border-radius:3px}
+figure{margin:0;display:flex;flex-direction:column;gap:.55rem}
+figure img{width:100%;height:auto;border:1px solid var(--hair);border-radius:2px;background:#fff}
+figcaption{font-size:.83rem;color:var(--muted)}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(17rem,1fr));gap:1.6rem}
+.card{background:var(--surface);border:1px solid var(--hair);border-left:3px solid var(--accent);
+border-radius:2px;padding:1.15rem 1.3rem}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(9rem,1fr));gap:1rem;margin:.4rem 0 1.5rem}
+.kpi{background:var(--surface);border:1px solid var(--hair);border-radius:2px;padding:1rem 1.1rem}
+.kpi .v{font-family:var(--fm);font-size:1.75rem;font-variant-numeric:tabular-nums;
+color:var(--accent);line-height:1.1}
+.kpi .l{font-size:.76rem;color:var(--muted);margin-top:.35rem}
+.scroll{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:.9rem;min-width:26rem}
+th,td{text-align:left;padding:.55rem .9rem .55rem 0;border-bottom:1px solid var(--hair);vertical-align:top}
+th{font-family:var(--fm);font-size:.67rem;letter-spacing:.09em;text-transform:uppercase;
+color:var(--muted);font-weight:400}
+td.n{font-family:var(--fm);font-variant-numeric:tabular-nums}
+.ok{color:var(--accent)}.bad{color:var(--crit)}
+.note{background:var(--sunken);border-radius:2px;padding:1.1rem 1.25rem;font-size:.93rem}
+.note b{font-weight:600}
+ul{margin:0 0 1rem;padding-left:1.2rem}li{margin-bottom:.4rem}
+footer{border-top:1px solid var(--hair);padding-top:1.4rem;color:var(--muted);font-size:.85rem}
+</style>

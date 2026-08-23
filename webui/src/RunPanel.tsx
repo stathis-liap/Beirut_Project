@@ -63,6 +63,7 @@ export default function RunPanel() {
 
   const [progress, setProgress] = useState<{ runId: string; msg: ProgressMsg } | null>(null)
   const [runError, setRunError] = useState<string | null>(null)
+  const [erosion, setErosion] = useState(false)
   const wsRef = useRef<WebSocket | null>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
 
@@ -153,7 +154,7 @@ export default function RunPanel() {
     const r = await fetch('/api/run', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ design: designName, storm: selected }),
+      body: JSON.stringify({ design: designName, storm: selected, erosion }),
     })
     if (!r.ok) {
       const body = await r.json().catch(() => ({ detail: r.statusText }))
@@ -264,6 +265,11 @@ export default function RunPanel() {
 
       <section>
         <h3 style={h3}>Run</h3>
+        <label style={{ ...sliderLabel, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <input type="checkbox" checked={erosion} onChange={(e) => setErosion(e.target.checked)} />
+          Enable erosion (experimental) — soil/soft materials erode and turn to mud under
+          rain/flow, illustrative coefficients not independently calibrated
+        </label>
         <button
           style={{ ...btn, width: '100%' }}
           onClick={runNow}

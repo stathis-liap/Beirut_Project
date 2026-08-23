@@ -23,7 +23,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from sandbox.encode import dem_bin, depth_png, diff_png, hazard_png, masks_png
+from sandbox.encode import dem_bin, depth_png, diff_png, erosion_png, hazard_png, masks_png
 from sandbox.jobs import JobQueue, RUNS_DIR
 from sandbox.metrics import get_or_compute_metrics
 from sandbox.state import (base, clamp_materials, design_store, get_storm,
@@ -46,7 +46,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-DAY = "public, max-age=86400"
+# These URLs are stable but their underlying files aren't always: a review
+# session can point --terrain at scratch data (see sandbox/state.py's
+# SANDBOX_TERRAIN_DIR override) that gets regenerated while the server stays
+# up. "public, max-age=86400" previously meant a browser wouldn't even ask
+# again for 24h after the first load - after regenerating terrain data, a
+# plain reload kept silently showing the stale pre-regeneration state, no
+# hard-refresh would have been obvious to need. "no-cache" still lets the
+# browser cache the response, it just always revalidates first - correctness
+# over the (here, immaterial for a local single-user tool) extra round trip.
+DAY = "no-cache"
 
 
 class CreateDesignBody(BaseModel):
@@ -74,6 +83,7 @@ class MaterialItem(BaseModel):
     infil_mmh: float
     manning_n: float
     depression_m: float
+    erodible_frac: float = 0.0
     builtin: bool = False
 
 
@@ -91,6 +101,9 @@ class RunBody(BaseModel):
     storm: str
     duration: float | None = None
     save_every: float = 60.0
+    # opt-in erosion sub-model (see flood_gpu.py's EROSION_DEFAULTS docstring) -
+    # off by default, no effect on the run unless explicitly enabled.
+    erosion: bool = False
 
 
 class RunPatchBody(BaseModel):
@@ -120,6 +133,8 @@ def meta():
         "dem_min": base.dem_min,
         "dem_scale": base.dem_scale,
         "hazard_bounds": [0.75, 1.25, 2.0],
+        # does this terrain carry a deferred corridor clearing at all?
+        "has_clearing": base.flatten_delta is not None,
     }
 
 
@@ -137,6 +152,23 @@ def terrain_hillshade():
 def terrain_dem_bin():
     body = dem_bin(base.dem, base.masks["valid"], base.dem_min, base.dem_scale)
     return Response(body, media_type="application/octet-stream", headers={"Cache-Control": DAY})
+
+
+@app.get("/api/terrain/flatten_delta.bin")
+def terrain_flatten_delta():
+    """The metres of ground the green corridor removes per cell (<=0).
+
+    A terrain-level layer, not a design one: it is the same clearing for every
+    design, and a design only chooses whether to apply it (clears_buildings).
+    Kept separate from the design's own dem_delta so the per-cell sculpt clamp
+    can never claw a demolition back."""
+    if base.flatten_delta is None:
+        return Response(np.zeros((base.h, base.w), np.float32).tobytes(),
+                        media_type="application/octet-stream",
+                        headers={"Cache-Control": DAY})
+    return Response(base.flatten_delta.astype(np.float32).tobytes(),
+                    media_type="application/octet-stream",
+                    headers={"Cache-Control": DAY})
 
 
 @app.get("/api/terrain/masks.png")
@@ -267,7 +299,8 @@ def post_run(body: RunBody):
         raise HTTPException(404, f"unknown storm '{body.storm}'")
     duration = body.duration or storm_json["duration"]
     try:
-        job, queued_behind = job_queue.enqueue(body.design, body.storm, storm_json, duration, body.save_every)
+        job, queued_behind = job_queue.enqueue(body.design, body.storm, storm_json, duration,
+                                               body.save_every, erosion=body.erosion)
     except RuntimeError as e:
         raise HTTPException(409, str(e))
     return {"run_id": job.run_id, "queued_behind": queued_behind}
@@ -401,6 +434,16 @@ def get_run_hazard_png(run_id: str):
     return Response(hazard_png(hz, md), media_type="image/png")
 
 
+@app.get("/api/runs/{run_id}/erosion.png")
+def get_run_erosion_png(run_id: str):
+    d = _run_dir(run_id)
+    path = os.path.join(d, "final_erosion.npy")
+    if not os.path.exists(path):
+        raise HTTPException(404, "this run wasn't made with erosion enabled")
+    erosion = np.load(path)
+    return Response(erosion_png(erosion), media_type="image/png")
+
+
 @app.get("/api/runs/{run_id}/gauges.csv")
 def get_run_gauges_csv(run_id: str):
     path = os.path.join(_run_dir(run_id), "gauges.csv")
@@ -453,6 +496,27 @@ def compare_diff_png(a: str, b: str, vmax: float | None = None):
     return Response(diff_png(depth_b, depth_a, vmax), media_type="image/png")
 
 
+class NoCacheIndex(StaticFiles):
+    """Serves the built frontend, but never lets a browser cache index.html.
+
+    Vite content-hashes the JS/CSS filenames, so those are safe to cache
+    forever - but index.html is the one file whose URL never changes while
+    its contents do, and it is what names the hashed bundle. StaticFiles
+    sets no Cache-Control at all, which leaves browsers free to apply
+    heuristic freshness (a fraction of the file's age) and keep serving a
+    stale index.html - and therefore an old JS bundle - across reloads,
+    indefinitely, no matter how fresh the API data behind it is. During a
+    review session that looks exactly like "I fixed it and they still see
+    the old behaviour", which is not a distinction worth debugging twice.
+    """
+
+    async def get_response(self, path, scope):
+        resp = await super().get_response(path, scope)
+        if path in ("", ".", "index.html") or path.endswith("/index.html"):
+            resp.headers["Cache-Control"] = "no-cache"
+        return resp
+
+
 dist = os.path.join(os.path.dirname(__file__), "..", "webui", "dist")
 if os.path.isdir(dist):
-    app.mount("/", StaticFiles(directory=dist, html=True), name="ui")
+    app.mount("/", NoCacheIndex(directory=dist, html=True), name="ui")

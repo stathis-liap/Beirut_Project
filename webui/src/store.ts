@@ -42,6 +42,9 @@ export interface MaterialDef {
   infil_mmh: number
   manning_n: number
   depression_m: number
+  // opt-in erosion sub-model susceptibility, 0-1 (0 = never erodes). Older
+  // saved designs predate this field - always read with `?? 0`.
+  erodible_frac: number
   builtin: boolean
 }
 
@@ -75,6 +78,7 @@ interface SandboxState {
   setMeta: (m: Meta) => void
   setDem: (d: Float32Array) => void
   setMasksRgba: (m: Uint8ClampedArray) => void
+  setClearDelta: (d: Float32Array) => void
   setView: (v: Partial<ViewTransform>) => void
 
   // ---- design editing state ----
@@ -82,6 +86,12 @@ interface SandboxState {
   designName: string | null
   material: Uint16Array | null
   demDelta: Float32Array | null
+  // Terrain-level: what the green corridor demolishes. Held separately from
+  // demDelta (which is the user's sculpting, clamped per cell) and applied
+  // only when the open design clears buildings, so the base terrain shows the
+  // real "before" world with every building still standing.
+  clearDelta: Float32Array | null
+  clearsBuildings: boolean
   materials: MaterialDef[]
   unlocked: boolean
   dirty: boolean
@@ -108,7 +118,7 @@ interface SandboxState {
   setRunProgress: (p: RunProgress | null) => void
 
   setDesignList: (l: DesignSummary[]) => void
-  openDesign: (name: string, material: Uint16Array, demDelta: Float32Array, materials: MaterialDef[], unlocked: boolean) => void
+  openDesign: (name: string, material: Uint16Array, demDelta: Float32Array, materials: MaterialDef[], unlocked: boolean, clearsBuildings: boolean) => void
   closeDesign: () => void
   setUnlockedLocal: (u: boolean) => void
   setMaterialsList: (m: MaterialDef[]) => void
@@ -135,12 +145,15 @@ export const useStore = create<SandboxState>((set) => ({
   setMeta: (m) => set({ meta: m }),
   setDem: (d) => set({ dem: d }),
   setMasksRgba: (m) => set({ masksRgba: m }),
+  setClearDelta: (d) => set({ clearDelta: d }),
   setView: (v) => set((s) => ({ view: { ...s.view, ...v } })),
 
   designList: [],
   designName: null,
   material: null,
   demDelta: null,
+  clearDelta: null,
+  clearsBuildings: false,
   materials: [],
   unlocked: false,
   dirty: false,
@@ -161,11 +174,12 @@ export const useStore = create<SandboxState>((set) => ({
   runProgress: null,
 
   setDesignList: (l) => set({ designList: l }),
-  openDesign: (name, material, demDelta, materials, unlocked) =>
+  openDesign: (name, material, demDelta, materials, unlocked, clearsBuildings) =>
     set({
       designName: name,
       material,
       demDelta,
+      clearsBuildings,
       materials,
       unlocked,
       dirty: false,
@@ -178,6 +192,7 @@ export const useStore = create<SandboxState>((set) => ({
       designName: null,
       material: null,
       demDelta: null,
+      clearsBuildings: false,
       materials: [],
       unlocked: false,
       dirty: false,

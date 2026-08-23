@@ -1,0 +1,38 @@
+{
+  "rows": [
+    {
+      "res_m": 0.5,
+      "cells": 2285142,
+      "before_m2": 82705.0,
+      "after_m2": 74914.0,
+      "reduction_pct": 9.420228523063901,
+      "p99_velocity_ms": 4.315189838409424
+    },
+    {
+      "res_m": 1.0,
+      "cells": 571000,
+      "before_m2": 146797.0,
+      "after_m2": 143281.0,
+      "reduction_pct": 2.395144314938316,
+      "p99_velocity_ms": 8.146798133850098
+    },
+    {
+      "res_m": 2.0,
+      "cells": 142500,
+      "before_m2": 197112.0,
+      "after_m2": 195920.0,
+      "reduction_pct": 0.6047323349161898,
+      "p99_velocity_ms": 11.866883277893066
+    },
+    {
+      "res_m": 4.0,
+      "cells": 35500,
+      "before_m2": 214512.0,
+      "after_m2": 209312.0,
+      "reduction_pct": 2.4241068098754384,
+      "p99_velocity_ms": 14.763955116271973
+    }
+  ],
+  "question": "EA SC120002 sec 6.1: is resolution finer than 2 m worth it?",
+  "method": "same terrain block-aggregated, so only the grid varies"
+}

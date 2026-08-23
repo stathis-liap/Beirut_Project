@@ -8,6 +8,8 @@ export interface DesignJson {
     modified: string
     base_terrain: string
     unlocked: boolean
+    /** true when this design demolishes the buildings in the corridor's path */
+    clears_buildings: boolean
   }
   materials: { materials: MaterialDef[] }
 }
@@ -63,6 +65,16 @@ export async function getDesignMaterial(name: string): Promise<Uint16Array> {
 export async function getDesignDemDelta(name: string): Promise<Float32Array> {
   const r = await fetch(`/api/designs/${encodeURIComponent(name)}/dem_delta.bin`)
   if (!r.ok) throw new Error(`GET dem_delta.bin -> ${r.status}`)
+  return new Float32Array(await r.arrayBuffer())
+}
+
+/** Metres of ground the green corridor removes per cell (<=0). A property of
+ * the terrain, not of any design - a design only chooses whether to apply it
+ * (see DesignJson.design.clears_buildings). Deliberately not part of a
+ * design's own dem_delta, which is user sculpting and is clamped per cell. */
+export async function getFlattenDelta(): Promise<Float32Array> {
+  const r = await fetch('/api/terrain/flatten_delta.bin')
+  if (!r.ok) throw new Error(`GET flatten_delta.bin -> ${r.status}`)
   return new Float32Array(await r.arrayBuffer())
 }
 

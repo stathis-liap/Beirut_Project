@@ -4,9 +4,16 @@
 set -uo pipefail
 cd /home/stathisliap/Work/Beirut_Project
 PY=/home/stathisliap/Work/.venv/bin/python
-BEFORE=output/terrain_cut_0.5
-AFTER=output/terrain_cut_corridor
-OUT=output/corridor_runs
+# Overridable so a scratch/review terrain can be studied side by side with the
+# published one instead of overwriting it; unset, these are the published paths
+# and the script behaves exactly as before.
+BEFORE=${CORRIDOR_BEFORE:-output/terrain_cut_0.5}
+AFTER=${CORRIDOR_AFTER:-output/terrain_cut_corridor}
+OUT=${CORRIDOR_OUT:-output/corridor_runs}
+# extra flags passed straight to flood_gpu.py, e.g. CORRIDOR_FLAGS="--scheme hllc"
+CORRIDOR_FLAGS=${CORRIDOR_FLAGS:-}
+# limit to the before/after pairs (skip the drain scenarios) for expensive schemes
+CORRIDOR_PAIRS_ONLY=${CORRIDOR_PAIRS_ONLY:-0}
 mkdir -p $OUT
 STORMS="t2 v1_nov2025 t50"
 
@@ -16,10 +23,10 @@ run(){ # terrain storm outdir drains
   echo "=== $od  [$(date +%H:%M:%S)] ==="
   if [ -n "$drains" ]; then
     $PY scripts/flood_gpu.py --terrain $terr --storm storms/$storm.json \
-        --out $od --drains $drains --save-every 300 || echo "RUN FAILED: $od"
+        --out $od --drains $drains --save-every 300 $CORRIDOR_FLAGS || echo "RUN FAILED: $od"
   else
     $PY scripts/flood_gpu.py --terrain $terr --storm storms/$storm.json \
-        --out $od --save-every 300 || echo "RUN FAILED: $od"
+        --out $od --save-every 300 $CORRIDOR_FLAGS || echo "RUN FAILED: $od"
   fi
 }
 
@@ -27,6 +34,10 @@ run(){ # terrain storm outdir drains
 for s in $STORMS; do run $BEFORE $s $OUT/before_$s ""; done
 # 2. AFTER (green corridor, drains blocked)
 for s in $STORMS; do run $AFTER $s $OUT/after_$s ""; done
+if [ "$CORRIDOR_PAIRS_ONLY" = "1" ]; then
+  echo "PAIRS ONLY: skipping the drain scenarios [$(date +%H:%M:%S)]"
+  exit 0
+fi
 # 3. optimize drains from the observed-storm baseline ponding
 if [ ! -f $AFTER/drains_opt.npz ]; then
   echo "=== optimize drains [$(date +%H:%M:%S)] ==="

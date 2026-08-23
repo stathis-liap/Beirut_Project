@@ -27,13 +27,14 @@ def _run_id(design_name, storm_name):
 
 
 class Job:
-    def __init__(self, run_id, design_name, storm_name, storm_json, duration, save_every):
+    def __init__(self, run_id, design_name, storm_name, storm_json, duration, save_every, erosion=False):
         self.run_id = run_id
         self.design_name = design_name
         self.storm_name = storm_name
         self.storm_json = storm_json
         self.duration = duration
         self.save_every = save_every
+        self.erosion = erosion
         self.run_dir = os.path.join(RUNS_DIR, run_id)
         self.state = "queued"  # queued | running | done | error
         self.latest = {"state": "queued"}
@@ -50,7 +51,7 @@ class JobQueue:
         os.makedirs(RUNS_DIR, exist_ok=True)
         threading.Thread(target=self._worker, daemon=True).start()
 
-    def enqueue(self, design_name, storm_name, storm_json, duration, save_every=60.0):
+    def enqueue(self, design_name, storm_name, storm_json, duration, save_every=60.0, erosion=False):
         if design_name not in self.design_store.designs:
             raise KeyError(f"unknown design '{design_name}'")
         with self._lock:
@@ -59,7 +60,7 @@ class JobQueue:
                     raise RuntimeError(f"design '{design_name}' already has a run queued or in progress")
             queued_behind = sum(1 for j in self.jobs.values() if j.state == "queued")
         run_id = _run_id(design_name, storm_name)
-        job = Job(run_id, design_name, storm_name, storm_json, duration, save_every)
+        job = Job(run_id, design_name, storm_name, storm_json, duration, save_every, erosion=erosion)
         with self._lock:
             self.jobs[run_id] = job
         self._queue.put(job)
@@ -86,7 +87,7 @@ class JobQueue:
 
     def _run(self, job):
         design = self.design_store.get(job.design_name)
-        dem, man, infil = bake(self.base, design)
+        dem, man, infil, erodible = bake(self.base, design)
         os.makedirs(job.run_dir, exist_ok=True)
 
         run_meta = {
@@ -100,6 +101,14 @@ class JobQueue:
         # valid even if the source design is later edited or deleted.
         np.save(os.path.join(job.run_dir, "material.npy"), design.material)
 
+        # A design that clears the corridor's buildings changes where rain
+        # lands: those roofs stop feeding downspouts and the cleared lots catch
+        # their own rain. Without this the "after" case would still route the
+        # corridor's rain through roofs the design just demolished.
+        rain_w = self.base.rain_w
+        if design.clears_buildings and self.base.rain_w_cleared is not None:
+            rain_w = self.base.rain_w_cleared
+
         def progress_cb(t, duration, stats):
             eta_s = stats["wall_s"] * (duration / t - 1) if t > 0 else None
             job.latest = {
@@ -112,9 +121,10 @@ class JobQueue:
         simulate(
             dem, self.base.t["res"], job.storm_json["steps"], job.duration, job.run_dir,
             manning=man, infil_mmh=infil, valid=self.base.masks["valid"],
-            water=self.base.masks["water"], rain_weight=self.base.rain_w,
+            water=self.base.masks["water"], rain_weight=rain_w,
             gauges=self.base.gauges, save_every=job.save_every, device="auto",
             save_frames=True, progress=False, progress_cb=progress_cb,
+            erosion=job.erosion, erodible=erodible,
         )
         with open(os.path.join(job.run_dir, "run_meta.json")) as f:
             job.latest = {"state": "done", "meta": json.load(f)}

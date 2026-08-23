@@ -13,7 +13,7 @@ import {
 import ResultMap from './ResultMap'
 import { btn, h3, inputStyle } from './panelStyles'
 
-type Overlay = 'animation' | 'maxdepth' | 'hazard'
+type Overlay = 'animation' | 'maxdepth' | 'hazard' | 'erosion'
 type Mode = 'library' | 'view' | 'compare'
 
 export default function ResultsView() {
@@ -77,6 +77,8 @@ export default function ResultsView() {
     refresh()
   }
 
+  const hasErosion = Boolean(detail?.meta?.erosion)
+
   const overlaySrc = !activeRun
     ? null
     : overlay === 'animation' && frames.length > 0
@@ -85,7 +87,9 @@ export default function ResultsView() {
         ? `/api/runs/${activeRun}/max_depth.png`
         : overlay === 'hazard'
           ? `/api/runs/${activeRun}/hazard.png`
-          : null
+          : overlay === 'erosion'
+            ? `/api/runs/${activeRun}/erosion.png`
+            : null
 
   const compareSrc = compareResult && compareA && compareB ? `/api/compare/diff.png?a=${compareA}&b=${compareB}` : null
 
@@ -168,7 +172,17 @@ export default function ResultsView() {
               <button style={{ ...btn, background: overlay === 'hazard' ? '#3b82f6' : btn.background }} onClick={() => setOverlay('hazard')}>
                 Hazard
               </button>
+              {hasErosion && (
+                <button style={{ ...btn, background: overlay === 'erosion' ? '#3b82f6' : btn.background }} onClick={() => setOverlay('erosion')}>
+                  Erosion
+                </button>
+              )}
             </div>
+            {overlay === 'erosion' && (
+              <div style={{ opacity: 0.7, marginBottom: 8 }}>
+                pale = dry soil, dark brown = fully "muddy" by the end of the storm (erosion_accum → 1)
+              </div>
+            )}
             {overlay === 'animation' && frames.length > 0 && (
               <div style={{ marginBottom: 8 }}>
                 <input

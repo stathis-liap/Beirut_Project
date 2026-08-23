@@ -46,6 +46,15 @@ export interface StrokeRecord {
 
 const DEM_DELTA_LIMIT = 3.0
 
+/** dt to use for the very first stamp of a stroke (at pointerdown, before any
+ * real elapsed time exists). A plain click-and-release used to pass dt=0
+ * there, which made a bare click on raise/lower/flatten/smooth apply exactly
+ * zero height change - it only did anything once the rAF hold-loop got a
+ * frame in. Using one "tap" worth of time instead (matching the per-frame dt
+ * clamp used everywhere else) means a single click always gives visible,
+ * immediate feedback. */
+export const INITIAL_TAP_DT = 0.1
+
 /** Tracks one paint/sculpt stroke: applies the brush in-place on the shared
  * `material`/`demDelta` typed arrays, records original values on first touch
  * of each cell (for undo), and reports the dirty rect after every stamp so
@@ -56,19 +65,51 @@ export class Stroke {
   private flattenTarget: number | null = null
   private lastPoint: { row: number; col: number } | null = null
 
+  private tool: Tool
+  private activeMaterialId: number
+  private width: number
+  private height: number
+  private dem: Float32Array
+  private material: Uint16Array
+  private demDelta: Float32Array
+  // The corridor's demolition, if the open design applies it. Not part of
+  // demDelta (which this class clamps per cell), but the sculpt tools that
+  // reason about absolute ground height still have to see it - otherwise
+  // flattening a cleared lot targets the height of the building that used
+  // to stand there.
+  private clearDelta: Float32Array | null
+  private editable: Uint8Array
+  private radiusCells: number
+  private strengthPerSec: number
+  private softness: number
+
   constructor(
-    private tool: Tool,
-    private activeMaterialId: number,
-    private width: number,
-    private height: number,
-    private dem: Float32Array,
-    private material: Uint16Array,
-    private demDelta: Float32Array,
-    private editable: Uint8Array,
-    private radiusCells: number,
-    private strengthPerSec: number,
-    private softness: number,
-  ) {}
+    tool: Tool,
+    activeMaterialId: number,
+    width: number,
+    height: number,
+    dem: Float32Array,
+    material: Uint16Array,
+    demDelta: Float32Array,
+    editable: Uint8Array,
+    radiusCells: number,
+    strengthPerSec: number,
+    softness: number,
+    clearDelta: Float32Array | null = null,
+  ) {
+    this.tool = tool
+    this.activeMaterialId = activeMaterialId
+    this.width = width
+    this.height = height
+    this.dem = dem
+    this.material = material
+    this.demDelta = demDelta
+    this.clearDelta = clearDelta
+    this.editable = editable
+    this.radiusCells = radiusCells
+    this.strengthPerSec = strengthPerSec
+    this.softness = softness
+  }
 
   private touchesMaterial() {
     return this.tool === 'paint' || this.tool === 'eraser'
@@ -76,6 +117,12 @@ export class Stroke {
 
   private touchesDem() {
     return this.tool === 'raise' || this.tool === 'lower' || this.tool === 'flatten' || this.tool === 'smooth'
+  }
+
+  /** Absolute ground height at a cell, as the design will actually be baked:
+   * base terrain + the corridor's demolition + the user's own sculpting. */
+  private groundAt(idx: number) {
+    return this.dem[idx] + this.demDelta[idx] + (this.clearDelta ? this.clearDelta[idx] : 0)
   }
 
   private recordOriginal(idx: number) {
@@ -115,7 +162,7 @@ export class Stroke {
           const d = Math.hypot(x - col, y - row)
           if (d > R) continue
           const idx = y * this.width + x
-          sum += this.dem[idx] + this.demDelta[idx]
+          sum += this.groundAt(idx)
           n++
         }
       }
@@ -147,7 +194,7 @@ export class Stroke {
             break
           case 'flatten': {
             const target = this.flattenTarget ?? 0
-            const cur = this.dem[idx] + this.demDelta[idx]
+            const cur = this.groundAt(idx)
             this.demDelta[idx] = clamp(this.demDelta[idx] + (target - cur) * 0.15 * wgt, -DEM_DELTA_LIMIT, DEM_DELTA_LIMIT)
             break
           }
@@ -278,13 +325,25 @@ export class UndoManager {
   private undoStack: StrokeRecord[] = []
   private redoStack: StrokeRecord[] = []
 
+  private designName: () => string | null
+  private material: () => Uint16Array
+  private demDelta: () => Float32Array
+  private width: () => number
+  private onApplied: (rect: Bbox) => void
+
   constructor(
-    private designName: () => string | null,
-    private material: () => Uint16Array,
-    private demDelta: () => Float32Array,
-    private width: () => number,
-    private onApplied: (rect: Bbox) => void,
-  ) {}
+    designName: () => string | null,
+    material: () => Uint16Array,
+    demDelta: () => Float32Array,
+    width: () => number,
+    onApplied: (rect: Bbox) => void,
+  ) {
+    this.designName = designName
+    this.material = material
+    this.demDelta = demDelta
+    this.width = width
+    this.onApplied = onApplied
+  }
 
   counts() {
     return { undo: this.undoStack.length, redo: this.redoStack.length }

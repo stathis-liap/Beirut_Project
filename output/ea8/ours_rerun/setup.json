@@ -1,0 +1,60 @@
+{
+  "tag": "ea8-2m",
+  "header": {
+    "ncols": 481.0,
+    "nrows": 199.0,
+    "xllcorner": 263977.0,
+    "yllcorner": 664409.0,
+    "cellsize": 2.0,
+    "nodata_value": -9999.0
+  },
+  "gauges": [
+    {
+      "name": "P1",
+      "row": 111,
+      "col": 351
+    },
+    {
+      "name": "P2",
+      "row": 68,
+      "col": 279
+    },
+    {
+      "name": "P3",
+      "row": 157,
+      "col": 188
+    },
+    {
+      "name": "P4",
+      "row": 124,
+      "col": 111
+    },
+    {
+      "name": "P5",
+      "row": 120,
+      "col": 177
+    },
+    {
+      "name": "P6",
+      "row": 124,
+      "col": 297
+    },
+    {
+      "name": "P7",
+      "row": 51,
+      "col": 365
+    },
+    {
+      "name": "P8",
+      "row": 77,
+      "col": 164
+    },
+    {
+      "name": "P9",
+      "row": 95,
+      "col": 121
+    }
+  ],
+  "sim_time": 18000.0,
+  "closure_rel": -0.0
+}

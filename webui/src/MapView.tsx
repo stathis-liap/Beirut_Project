@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from './store'
 import { computeNodataOverlay, computeZoneOverlay, fetchDem, fetchMasksRgba, fetchMeta, pixelToUtm } from './terrain'
+import { getFlattenDelta } from './api'
 import {
   buildEditableMask,
+  INITIAL_TAP_DT,
   materialColorTable,
   maxAbsDelta,
   renderElevationHeatmapRect,
@@ -23,6 +25,9 @@ export default function MapView() {
   const setDem = useStore((s) => s.setDem)
   const masksRgba = useStore((s) => s.masksRgba)
   const setMasksRgba = useStore((s) => s.setMasksRgba)
+  const setClearDelta = useStore((s) => s.setClearDelta)
+  const clearDelta = useStore((s) => s.clearDelta)
+  const clearsBuildings = useStore((s) => s.clearsBuildings)
   const view = useStore((s) => s.view)
   const setView = useStore((s) => s.setView)
 
@@ -76,10 +81,15 @@ export default function MapView() {
       if (cancelled) return
       setMeta(m)
       setLoading('loading elevation...')
-      const [d, masks] = await Promise.all([fetchDem(m), fetchMasksRgba(m.width, m.height)])
+      // the corridor's demolition is a property of the terrain, fetched once
+      // with it; whether it is applied is the open design's business
+      const [d, masks, clearing] = await Promise.all([
+        fetchDem(m), fetchMasksRgba(m.width, m.height), getFlattenDelta(),
+      ])
       if (cancelled) return
       setDem(d)
       setMasksRgba(masks)
+      setClearDelta(clearing)
       setLoading('')
     })().catch((e) => setLoading('error: ' + e))
     return () => {
@@ -299,10 +309,11 @@ export default function MapView() {
         radiusCells,
         brushStrengthMps,
         brushSoftness,
+        clearsBuildings ? clearDelta : null,
       )
       lastStampTime.current = performance.now()
       pointerCellRef.current = cell
-      const rect = strokeRef.current.stampAt(cell.row, cell.col, 0)
+      const rect = strokeRef.current.stampAt(cell.row, cell.col, INITIAL_TAP_DT)
       if (rect) redrawRect(rect)
       ;(e.target as Element).setPointerCapture(e.pointerId)
       if (rafIdRef.current === null) rafIdRef.current = requestAnimationFrame(tick)

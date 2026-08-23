@@ -122,7 +122,8 @@ export default function DesignPanel() {
     setBusy('loading design...')
     try {
       const [d, mat, delta] = await Promise.all([getDesign(name), getDesignMaterial(name), getDesignDemDelta(name)])
-      openDesign(name, mat, delta, d.materials.materials, d.design.unlocked)
+      openDesign(name, mat, delta, d.materials.materials, d.design.unlocked,
+                 !!d.design.clears_buildings)
     } catch (e) {
       alert(String(e))
     } finally {
@@ -206,6 +207,7 @@ export default function DesignPanel() {
       infil_mmh: 100,
       manning_n: 0.05,
       depression_m: 0,
+      erodible_frac: 0,
       builtin: false,
     }
     const updated = [...materials, next]
@@ -459,6 +461,18 @@ export default function DesignPanel() {
                     step={0.01}
                     value={activeMaterial.depression_m}
                     onChange={(e) => updateActiveMaterial({ depression_m: Number(e.target.value) })}
+                  />
+                </label>
+                <label style={sliderLabel}>
+                  Erodibility: {(activeMaterial.erodible_frac ?? 0).toFixed(2)} (0 = never erodes; only used when a
+                  run has erosion enabled)
+                  <input
+                    type="range"
+                    min={0}
+                    max={1}
+                    step={0.05}
+                    value={activeMaterial.erodible_frac ?? 0}
+                    onChange={(e) => updateActiveMaterial({ erodible_frac: Number(e.target.value) })}
                   />
                 </label>
                 <div style={{ display: 'flex', gap: 4, marginTop: 8 }}>

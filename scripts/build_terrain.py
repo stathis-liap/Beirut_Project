@@ -37,13 +37,53 @@ sys.path.insert(0, os.path.dirname(__file__))
 from las_common import load_transform, save_transform, utm_to_pixel
 from build_dem import despeckle, hillshade, fill_sinks, d8_flow_accumulation
 
-# land-cover classes
-PAVED, BUILDING, CANOPY, GRASS, SOIL, WATER = 0, 1, 2, 3, 4, 5
-CLASS_NAMES = ["paved", "building", "canopy", "grass", "soil", "water"]
-MANNING = {PAVED: 0.016, BUILDING: 0.05, CANOPY: 0.10,
-           GRASS: 0.035, SOIL: 0.025, WATER: 0.03}
-INFIL_MMH = {PAVED: 0.0, BUILDING: 0.0, CANOPY: 11.0,
-             GRASS: 11.0, SOIL: 8.0, WATER: 0.0}
+# land-cover classes. The original 6 (0-5) keep their IDs/meaning for
+# continuity; 6-8 are new, split out of what used to be a single PAVED
+# bucket and a single SOIL/GRASS bucket using slope+roughness signals
+# derived from data already on disk (no new LAS/stack pass needed) rather
+# than RGB alone.
+(PAVED, BUILDING, CANOPY, GRASS, SOIL, WATER,
+ GRAVEL, SHRUB, PAVED_CONCRETE) = range(9)
+CLASS_NAMES = ["paved_asphalt", "building", "canopy", "grass", "soil", "water",
+               "gravel_unpaved", "shrub", "paved_concrete"]
+# Manning n | infiltration mm/h | erodibility 0-1 (opt-in erosion sub-model
+# susceptibility - illustrative/tunable, not independently calibrated the
+# way n/infiltration are; see flood_gpu.py's EROSION_DEFAULTS docstring).
+MANNING = {PAVED: 0.016, BUILDING: 0.05, CANOPY: 0.10, GRASS: 0.035,
+           SOIL: 0.025, WATER: 0.03, GRAVEL: 0.04, SHRUB: 0.08,
+           PAVED_CONCRETE: 0.014}
+INFIL_MMH = {PAVED: 0.0, BUILDING: 0.0, CANOPY: 11.0, GRASS: 11.0,
+             SOIL: 8.0, WATER: 0.0, GRAVEL: 15.0, SHRUB: 11.0,
+             PAVED_CONCRETE: 0.0}
+ERODIBILITY = {PAVED: 0.0, BUILDING: 0.0, CANOPY: 0.05, GRASS: 0.15,
+               SOIL: 0.7, WATER: 0.0, GRAVEL: 0.5, SHRUB: 0.2,
+               PAVED_CONCRETE: 0.0}
+# Green-Ampt soil parameters (see flood_gpu.simulate(infil_mode="green_ampt")).
+# INFIL_MMH above is read as the saturated conductivity K; these are the two
+# extra terms in f = K (1 + psi*dtheta/F). Values are Rawls, Brakensiek &
+# Miller (1983) texture classes matched to each cover type by its K: 11 mm/h
+# is sandy loam (10.9), 8 is toward silt loam, 15 toward loamy sand.
+# DTHETA is the moisture DEFICIT at the start of the storm, taken as ~70% of
+# effective porosity for a dry antecedent condition. Like the Manning and
+# infiltration tables beside them these are literature values, NOT calibrated
+# against site measurements - and this study has no observed infiltration or
+# flood data to calibrate them against.
+PSI_M = {PAVED: 0.0, BUILDING: 0.0, CANOPY: 0.11, GRASS: 0.11,
+         SOIL: 0.12, WATER: 0.0, GRAVEL: 0.08, SHRUB: 0.11,
+         PAVED_CONCRETE: 0.0}
+DTHETA = {PAVED: 0.0, BUILDING: 0.0, CANOPY: 0.28, GRASS: 0.28,
+          SOIL: 0.30, WATER: 0.0, GRAVEL: 0.25, SHRUB: 0.28,
+          PAVED_CONCRETE: 0.0}
+
+
+def local_roughness(z, win):
+    """Local std of `z` in a win x win window (mean(x^2) - mean(x)^2, via
+    scipy's box filter) - a cheap texture/bumpiness proxy from the DEM
+    already on disk, no new stack layer needed."""
+    zf = z.astype(np.float32)
+    mean = ndimage.uniform_filter(zf, size=win)
+    meansq = ndimage.uniform_filter(zf * zf, size=win)
+    return np.sqrt(np.clip(meansq - mean * mean, 0, None))
 
 
 def fill_holes_masked(dem, fillable, sources=None, max_iters=300):
@@ -200,12 +240,32 @@ def main():
     ap.add_argument("--out", default=None, help="default output/terrain_<res>")
     ap.add_argument("--exg", default="otsu", help="'otsu' or a float threshold")
     ap.add_argument("--canopy-relief", type=float, default=2.0)
+    ap.add_argument("--shrub-relief", type=float, default=0.3,
+                    help="relief above this (and below --canopy-relief) among "
+                         "vegetated cells is classed shrub/hedge, not lawn grass")
+    ap.add_argument("--roughness-win-m", type=float, default=1.5,
+                    help="window size (m) for the local height-roughness texture signal")
     ap.add_argument("--sea-level", type=float, default=26.0,
                     help="ellipsoidal sea-surface height (Beirut LAS: ~+26 m)")
     ap.add_argument("--sea-margin", type=float, default=1.5,
                     help="cells below sea-level+margin become outflow water")
+    ap.add_argument("--pit-depth-m", type=float, default=10.0,
+                    help="an enclosed sub-sea-level body sitting more than this far "
+                         "below the ground around it is photogrammetric noise, not "
+                         "terrain, and is filled flush with that ground. The real sea "
+                         "(largest such body) is never touched")
+    ap.add_argument("--pit-max-depth-m", type=float, default=12.0,
+                    help="cap on how deep a detected excavation is modelled. Its true "
+                         "measured depth can be far larger (35 m here, ~70,000 m3 of "
+                         "storage) and a transient construction pit belonging to "
+                         "neither scenario should not dominate the catchment. 0 = use "
+                         "the measured depth")
     ap.add_argument("--cuts", help="JSON {'polygons': [[[x,y],...],...]} "
                                    "bridge/underpass cuts, re-interpolated as ground")
+    ap.add_argument("--crop-to-valid", action="store_true",
+                    help="trim fully-empty border rows/columns (the nodata slab "
+                         "left by gridding a polygon cut onto its bounding box) "
+                         "and shift the transform to match")
     ap.add_argument("--no-fillbound", action="store_true")
     ap.add_argument("--geotiff", action="store_true", help="also write COG-ish GeoTIFFs")
     ap.add_argument("--gauges-only", action="store_true",
@@ -242,6 +302,56 @@ def main():
           f"{100 * valid.mean():.1f}%")
     ground = fill_holes_masked(zlow, valid & ~covered)
     ground = despeckle(ground)
+
+    # --- 1b. deep enclosed excavations, and the sea ------------------------
+    # A sub-sea-level body that is not the sea is either photogrammetric noise
+    # or a real excavation, and the two need opposite treatment. The one here
+    # (1988 m2 with its floor 35 m below the ground enclosing it) is REAL: the
+    # floor carries 17 LiDAR returns per cell and spans only 2.67 m across the
+    # whole footprint, and the orthophoto shows the retaining walls and the
+    # shadow. That is a measured surface, not a data void - an early reading of
+    # this as noise, and filling it flush, was wrong.
+    #
+    # What it must NOT stay is part of the sea mask. The sea is the model's
+    # open outflow boundary, so an inland pit lumped in with it silently
+    # deletes every drop that reaches it. As its own basin it stores instead,
+    # which is what an open excavation actually does.
+    #
+    # Depth is capped (--pit-max-depth-m) because at its true 35 m this single
+    # lot holds ~70,000 m3 - more than thirty times the corridor's entire
+    # per-storm infiltration benefit - and a transient construction pit that
+    # belongs to neither the before nor the after design should not dominate
+    # the northern catchment's water balance. Pass 0 for the measured depth.
+    # The real sea is identified as the largest such body and never touched.
+    excavation = np.zeros_like(valid)
+    below0 = valid & (ground < args.sea_level + args.sea_margin)
+    lab_p, n_p = ndimage.label(below0, np.ones((3, 3)))
+    if n_p:
+        sizes = ndimage.sum(below0, lab_p, np.arange(1, n_p + 1))
+        main = int(np.argmax(sizes)) + 1          # the actual sea / harbour
+        for i in range(1, n_p + 1):
+            if i == main:
+                continue
+            mm = lab_p == i
+            ring = ndimage.binary_dilation(mm, np.ones((11, 11))) & ~mm & valid & ~below0
+            if ring.sum() < 20:
+                continue
+            ring_z = float(np.percentile(ground[ring], 25))
+            floor_z = float(np.median(ground[mm]))
+            if ring_z - floor_z < args.pit_depth_m:
+                continue
+            capped = floor_z
+            if args.pit_max_depth_m > 0:
+                capped = max(floor_z, ring_z - args.pit_max_depth_m)
+            # a flat floor inside its own walls - the shape an excavation has,
+            # and the shape the orthophoto shows; not a bowl or a smooth patch
+            ground[mm] = capped
+            excavation |= mm
+            print(f"excavation: {int(mm.sum())} cells ({mm.sum() * res * res:.0f} m2), "
+                  f"floor measured at {floor_z:.1f} m ({ring_z - floor_z:.0f} m below its rim), "
+                  f"modelled at {capped:.1f} m ({ring_z - capped:.0f} m deep, "
+                  f"{mm.sum() * res * res * (ring_z - capped):.0f} m3 of storage)")
+
     relief = np.where(np.isfinite(zhigh) & np.isfinite(ground),
                       zhigh - ground, 0.0)
 
@@ -265,6 +375,9 @@ def main():
         ndimage.binary_closing(below, iterations=2)) & valid
     print(f"sea/low-water mask: {below.sum()} cells below "
           f"{args.sea_level + args.sea_margin:.1f} m -> {sea.sum()} after closing")
+    # an inland excavation is a basin that stores runoff, not an outflow
+    # boundary that deletes it - see 1b
+    sea &= ~excavation
     water |= sea
     water &= ~building
 
@@ -279,15 +392,60 @@ def main():
     print(f"ExG threshold {thr:.3f}")
     veg = (exg > thr) & valid
     canopy = veg & (relief > args.canopy_relief) & ~building
-    grass = veg & ~canopy & ~building & ~water
+    shrub = veg & ~canopy & ~building & ~water & (relief > args.shrub_relief)
+    grass = veg & ~canopy & ~shrub & ~building & ~water
     mx = rgb.max(axis=2).astype(np.float32)
     mn = rgb.min(axis=2).astype(np.float32)
     sat = np.where(mx > 0, (mx - mn) / np.maximum(mx, 1), 0)
-    soil = (~veg & ~building & ~water & valid & (sat > 0.12) &
-            (rgb[..., 0] > rgb[..., 1]) & (rgb[..., 1] > rgb[..., 2]))
+    soil_color = (~veg & ~building & ~water & valid & (sat > 0.12) &
+                  (rgb[..., 0] > rgb[..., 1]) & (rgb[..., 1] > rgb[..., 2]))
+
+    # --- local roughness/slope: the "not just RGB" signals, both derived
+    # from data already on disk (ground/dem), no new LAS/stack pass needed.
+    win = max(3, int(round(args.roughness_win_m / res)))
+    if win % 2 == 0:
+        win += 1
+    fill_val = float(np.nanmean(ground[valid])) if valid.any() else 0.0
+    roughness = local_roughness(np.where(valid, ground, fill_val), win)
+    # `ground` still carries roof height at building cells at this point (it's
+    # not re-interpolated to true ground until step 3, below) - the ground/roof
+    # cliff at every building edge would otherwise dominate the roughness
+    # histogram and drag the auto threshold up to noise. Keep the threshold
+    # search away from building footprints and their immediate edge halo.
+    building_halo = ndimage.binary_dilation(building, iterations=2)
+    interior_ground = valid & ~building_halo
+    rough_candidates = interior_ground & (s > 30)
+    # roughness is heavily right-skewed (long tail of curbs/fences/vegetation
+    # edges, not a clean bimodal split), so Otsu keeps chasing the tail and
+    # saturates at any reasonable clamp - an adaptive top-percentile cut
+    # ("distinctly bumpier than most interior ground") is the better match
+    # for this distribution's actual shape.
+    rough_thr = float(np.clip(np.percentile(roughness[rough_candidates], 82), 0.02, 1.5)) \
+        if rough_candidates.any() else 0.08
+    print(f"roughness threshold {rough_thr:.3f} m (window {win} cells = "
+          f"{win * res:.1f} m)")
+    # same building-edge halo exclusion for the actual texture classification,
+    # not just the threshold search - a real building/ground cliff shouldn't
+    # get its neighbouring sidewalk cells misread as "gravel".
+    textured = valid & ~building_halo & (roughness > rough_thr)
+
+    # brightness splits the two paved classes; texture (not color alone)
+    # decides "informal/unpaved ground" - gravel, dirt tracks and rubble all
+    # read as bumpy in the height field even when their color is ambiguous.
+    brightness = rgb.mean(axis=2).astype(np.float32) / 255.0
+    impervious_candidates = valid & ~building & ~water & ~veg & ~soil_color
+    bright_thr = float(np.clip(otsu_threshold(brightness[impervious_candidates & (s > 30)]),
+                               0.25, 0.75)) if impervious_candidates.any() else 0.45
+    print(f"paved brightness threshold {bright_thr:.3f}")
+    concrete = impervious_candidates & ~textured & (brightness > bright_thr)
+    gravel = (impervious_candidates & textured) | (soil_color & textured)
+    soil = soil_color & ~textured
 
     landcover = np.full((h, w), PAVED, dtype=np.uint8)
+    landcover[concrete] = PAVED_CONCRETE
+    landcover[gravel] = GRAVEL
     landcover[soil] = SOIL
+    landcover[shrub] = SHRUB
     landcover[grass] = GRASS
     landcover[canopy] = CANOPY
     landcover[water] = WATER
@@ -342,9 +500,48 @@ def main():
     # --- 6. parameter rasters ----------------------------------------------
     manning = np.full((h, w), MANNING[PAVED], dtype=np.float32)
     infil = np.zeros((h, w), dtype=np.float32)
-    for ci in range(6):
+    erodible = np.zeros((h, w), dtype=np.float32)
+    psi = np.zeros((h, w), dtype=np.float32)
+    dtheta = np.zeros((h, w), dtype=np.float32)
+    for ci in range(len(CLASS_NAMES)):
         manning[landcover == ci] = MANNING[ci]
         infil[landcover == ci] = INFIL_MMH[ci]
+        erodible[landcover == ci] = ERODIBILITY[ci]
+        psi[landcover == ci] = PSI_M[ci]
+        dtheta[landcover == ci] = DTHETA[ci]
+
+    # --- 6b. crop away all-nodata margins -----------------------------------
+    # The corridor cut is a polygon, but the raster stack it is gridded onto is
+    # its axis-aligned bounding box, so the survey's own boundary leaves whole
+    # bands of the grid with no returns at all - here the southern 394 rows
+    # (10.3 ha, 17% of the domain) are nodata edge to edge. They render as a
+    # solid black slab in both the 2D map and the 3D mesh, cost memory and
+    # solver time, and carry no information. Trimming to the valid bounding box
+    # removes the slab at the source rather than asking every consumer to hide
+    # it. Only fully-empty border rows/columns go: nothing inside the domain,
+    # and interior nodata (courtyards, shadowed alleys) is untouched.
+    if args.crop_to_valid:
+        rows = np.flatnonzero(valid.any(axis=1))
+        cols = np.flatnonzero(valid.any(axis=0))
+        r0, r1 = int(rows[0]), int(rows[-1]) + 1
+        c0, c1 = int(cols[0]), int(cols[-1]) + 1
+        if (r0, c0, r1, c1) != (0, 0, h, w):
+            sl = (slice(r0, r1), slice(c0, c1))
+            dem, rgb, landcover = dem[sl], rgb[sl], landcover[sl]
+            manning, infil, erodible = manning[sl], infil[sl], erodible[sl]
+            psi, dtheta = psi[sl], dtheta[sl]
+            rain_weight = rain_weight[sl]
+            valid, building = valid[sl], building[sl]
+            courtyard, water, eligible = courtyard[sl], water[sl], eligible[sl]
+            # georeference the new origin BEFORE h/w change; rows run south, so
+            # trimming from the top lowers maxy and from the bottom raises miny.
+            t = dict(t, minx=t["minx"] + c0 * res,
+                     miny=t["maxy"] - r1 * res,
+                     maxy=t["maxy"] - r0 * res,
+                     width=c1 - c0, height=r1 - r0)
+            print(f"cropped to valid extent: {h}x{w} -> {r1 - r0}x{c1 - c0} "
+                  f"(dropped {(h * w - (r1 - r0) * (c1 - c0)) * res * res / 1e4:.1f} ha of nodata)")
+            h, w = r1 - r0, c1 - c0
 
     # --- write core outputs -------------------------------------------------
     np.save(os.path.join(out, "dem.npy"),
@@ -356,6 +553,9 @@ def main():
     np.save(os.path.join(out, "landcover.npy"), landcover)
     np.save(os.path.join(out, "manning.npy"), manning)
     np.save(os.path.join(out, "infil_mmh.npy"), infil)
+    np.save(os.path.join(out, "erodible.npy"), erodible)
+    np.save(os.path.join(out, "infil_psi_m.npy"), psi)
+    np.save(os.path.join(out, "infil_dtheta.npy"), dtheta)
     np.save(os.path.join(out, "rain_weight.npy"), rain_weight)
     np.savez_compressed(os.path.join(out, "masks.npz"),
                         valid=valid, building=building, courtyard=courtyard,
@@ -385,12 +585,12 @@ def main():
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     from matplotlib.colors import ListedColormap
-    cmap = ListedColormap(["#bdbdbd", "#e05555", "#1a7a2e",
-                           "#8fd06e", "#c8a44b", "#3d8bd4"])
+    cmap = ListedColormap(["#bdbdbd", "#e05555", "#1a7a2e", "#8fd06e", "#c8a44b",
+                           "#3d8bd4", "#9c8060", "#4f9d4f", "#e0e0e0"])
     fig, ax = plt.subplots(figsize=(16, 12))
     ax.imshow(rgb)
     lc = np.ma.masked_where(~valid, landcover)
-    ax.imshow(lc, cmap=cmap, vmin=-0.5, vmax=5.5, alpha=0.45, interpolation="nearest")
+    ax.imshow(lc, cmap=cmap, vmin=-0.5, vmax=len(CLASS_NAMES) - 0.5, alpha=0.45, interpolation="nearest")
     for g in gauges:
         px, py = utm_to_pixel(t, g["x"], g["y"])
         ax.plot(px, py, "wo", ms=8, mec="k")

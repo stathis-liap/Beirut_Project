@@ -147,7 +147,7 @@ def main():
     if not args.terrain or not args.storms:
         sys.exit("--terrain and --storms are required (or use --collect)")
 
-    dem0, t, masks, manning0, infil0, rain_w, gauges = load_terrain(args.terrain)
+    dem0, t, masks, manning0, infil0, rain_w, gauges, _erodible0 = load_terrain(args.terrain)
     drains_path = os.path.join(args.terrain, "drains.npz")
     py = sys.executable
     here = os.path.dirname(os.path.abspath(__file__))

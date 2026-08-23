@@ -1,13 +1,19 @@
 import { useEffect, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
-import { useStore } from './store'
-import { computeEffectiveZ, materialDepressionTable } from './terrain'
-import { buildEditableMask, materialColorTable, maxAbsDelta, renderMaterialRect, Stroke } from './editor'
+import { useStore, type MaterialDef } from './store'
+import { computeEffectiveZ, computeNodataOverlay, fillInvalidNearest, materialDepressionTable } from './terrain'
+
+/** The corridor's demolition at one cell, if the open design applies it.
+ * Kept out of demDelta so the per-cell sculpt clamp can't claw it back;
+ * every place that computes a rendered ground height has to add it. */
+function clearAt(st: { clearDelta: Float32Array | null; clearsBuildings: boolean }, idx: number) {
+  return st.clearsBuildings && st.clearDelta ? st.clearDelta[idx] : 0
+}
+import { buildEditableMask, INITIAL_TAP_DT, materialColorTable, maxAbsDelta, renderMaterialRect, Stroke } from './editor'
 import { patchDesign } from './api'
 
 const PERF_STRIDE = 2 // "performance mode" decimation factor for weaker machines
-const NORMALS_THROTTLE_MS = 150
 // THREE.Raycaster does a naive linear scan over every triangle - at full
 // detail (~5.4M triangles) that makes each raycast take so long it starves
 // the interaction, silently throttling how much a stroke can accumulate per
@@ -41,37 +47,27 @@ interface GridMesh {
 }
 
 /** Builds a heightfield grid at the given stride: vertex (r,c) sits at
- * (sc*res, effectiveZ, sr*res) where sc=min(c*stride,width-1) etc. Any quad
- * touching an invalid (no-survey-data) vertex is omitted entirely, so both
- * the display and picking meshes agree on where the domain actually ends. */
-function buildGridMesh(
-  width: number,
-  height: number,
-  res: number,
-  z: Float32Array,
-  masksRgba: Uint8ClampedArray,
-  fillZ: number,
-  stride: number,
-): GridMesh {
+ * (sc*res, effectiveZ, sr*res) where sc=min(c*stride,width-1) etc. `z` must
+ * already be filled across no-survey-data cells (see `fillInvalidNearest`)
+ * so every quad is buildable - no dropped quads means no holes to fall
+ * through and no fixed-height fill plane to create a stretched cliff. */
+function buildGridMesh(width: number, height: number, res: number, z: Float32Array, stride: number): GridMesh {
   const gw = Math.ceil(width / stride)
   const gh = Math.ceil(height / stride)
   const positions = new Float32Array(gw * gh * 3)
   const uvs = new Float32Array(gw * gh * 2)
-  const validGrid = new Uint8Array(gw * gh)
   for (let r = 0; r < gh; r++) {
     const sr = Math.min(r * stride, height - 1)
     for (let c = 0; c < gw; c++) {
       const sc = Math.min(c * stride, width - 1)
       const idx = sr * width + sc
-      const valid = masksRgba[idx * 4 + 3] > 127
       const vi = (r * gw + c) * 3
       positions[vi] = sc * res
-      positions[vi + 1] = valid ? z[idx] : fillZ
+      positions[vi + 1] = z[idx]
       positions[vi + 2] = sr * res
       const ui = (r * gw + c) * 2
       uvs[ui] = sc / (width - 1)
       uvs[ui + 1] = 1 - sr / (height - 1)
-      validGrid[r * gw + c] = valid ? 1 : 0
     }
   }
   const indexList: number[] = []
@@ -81,11 +77,45 @@ function buildGridMesh(
       const b = a + 1
       const cc = a + gw
       const d = cc + 1
-      if (!validGrid[a] || !validGrid[b] || !validGrid[cc] || !validGrid[d]) continue
       indexList.push(a, cc, b, b, cc, d)
     }
   }
   return { gw, gh, positions, uvs, indices: new Uint32Array(indexList) }
+}
+
+/** Per-vertex normal via the standard heightfield central-difference formula
+ * (cross of the row-tangent and column-tangent through each vertex's
+ * immediate neighbours), restricted to [r0,r1]x[c0,c1]. Visually equivalent
+ * to averaging adjacent face normals but O(1) per vertex instead of O(faces
+ * per vertex), so a brush stroke's shading update costs only the touched
+ * patch rather than the whole mesh. */
+function updateLocalNormals(posArr: Float32Array, normArr: Float32Array, gw: number, gh: number, r0: number, r1: number, c0: number, c1: number) {
+  for (let r = r0; r <= r1; r++) {
+    const rU = Math.max(r - 1, 0)
+    const rD = Math.min(r + 1, gh - 1)
+    for (let c = c0; c <= c1; c++) {
+      const cL = Math.max(c - 1, 0)
+      const cR = Math.min(c + 1, gw - 1)
+      const iL = (r * gw + cL) * 3
+      const iR = (r * gw + cR) * 3
+      const iU = (rU * gw + c) * 3
+      const iD = (rD * gw + c) * 3
+      const txx = posArr[iR] - posArr[iL]
+      const txy = posArr[iR + 1] - posArr[iL + 1]
+      const txz = posArr[iR + 2] - posArr[iL + 2]
+      const tzx = posArr[iD] - posArr[iU]
+      const tzy = posArr[iD + 1] - posArr[iU + 1]
+      const tzz = posArr[iD + 2] - posArr[iU + 2]
+      const nx = tzy * txz - tzz * txy
+      const ny = tzz * txx - tzx * txz
+      const nz = tzx * txy - tzy * txx
+      const len = Math.hypot(nx, ny, nz) || 1
+      const vi = (r * gw + c) * 3
+      normArr[vi] = nx / len
+      normArr[vi + 1] = ny / len
+      normArr[vi + 2] = nz / len
+    }
+  }
 }
 
 export default function Scene3D() {
@@ -111,9 +141,24 @@ export default function Scene3D() {
   const strokeRef = useRef<Stroke | null>(null)
   const pointerCell = useRef<{ row: number; col: number } | null>(null)
   const lastStampTime = useRef(0)
-  const lastNormalsTime = useRef(0)
   const cursorRingRef = useRef<THREE.Mesh | null>(null)
   const raycasterRef = useRef(new THREE.Raycaster())
+  // materialDepressionTable() allocates a fresh Map from the materials array
+  // every call; during a live drag getYAt()/updateLiveRegion() call it every
+  // frame (or on every pointermove), which was pure GC churn for a table
+  // that only actually changes when the material list itself changes.
+  const depressionCacheRef = useRef<{ materials: MaterialDef[] | null; table: Map<number, number> }>({
+    materials: null,
+    table: new Map(),
+  })
+  function getDepressionTable(materials: MaterialDef[]): Map<number, number> {
+    const cache = depressionCacheRef.current
+    if (cache.materials !== materials) {
+      cache.table = materialDepressionTable(materials)
+      cache.materials = materials
+    }
+    return cache.table
+  }
 
   const meta = useStore((s) => s.meta)
   const dem = useStore((s) => s.dem)
@@ -121,6 +166,8 @@ export default function Scene3D() {
   const designName = useStore((s) => s.designName)
   const material = useStore((s) => s.material)
   const demDelta = useStore((s) => s.demDelta)
+  const clearDelta = useStore((s) => s.clearDelta)
+  const clearsBuildings = useStore((s) => s.clearsBuildings)
   const materials = useStore((s) => s.materials)
   const unlocked = useStore((s) => s.unlocked)
   const editVersion = useStore((s) => s.editVersion)
@@ -222,9 +269,9 @@ export default function Scene3D() {
     function updateLiveRegion(rect: Rect) {
       const st = useStore.getState()
       if (!meshRef.current || !gridRef.current || !st.meta || !st.dem || !st.material || !st.demDelta || !st.masksRgba) return
-      const { stride, gw } = gridRef.current
+      const { stride, gw, gh } = gridRef.current
       const { width, height } = st.meta
-      const depression = materialDepressionTable(st.materials)
+      const depression = getDepressionTable(st.materials)
       const pos = meshRef.current.geometry.attributes.position as THREE.BufferAttribute
       const arr = pos.array as Float32Array
 
@@ -241,15 +288,22 @@ export default function Scene3D() {
           const cls = st.material[idx]
           const dep = cls === 0 ? 0 : (depression.get(cls) ?? 0)
           const vi = (r * gw + c) * 3
-          arr[vi + 1] = st.dem[idx] - dep + st.demDelta[idx]
+          arr[vi + 1] = st.dem[idx] - dep + st.demDelta[idx] + clearAt(st, idx)
         }
       }
       pos.needsUpdate = true
-      const now = performance.now()
-      if (now - lastNormalsTime.current > NORMALS_THROTTLE_MS) {
-        meshRef.current.geometry.computeVertexNormals()
-        lastNormalsTime.current = now
-      }
+      // Recompute normals only for the touched patch (plus a 1-vertex halo
+      // for correct shading at its edge) instead of geometry.computeVertexNormals(),
+      // which walks every one of the ~5.4M triangles in the full-detail mesh
+      // regardless of how small the edit was - that full-mesh scan, even
+      // throttled, was the main source of hitching while sculpting. Uses the
+      // standard heightfield central-difference normal instead of the
+      // per-face-averaged one; visually equivalent, O(touched cells) instead
+      // of O(triangles). A single real computeVertexNormals() runs once on
+      // stroke finish to guarantee it exactly matches a full rebuild.
+      const norm = meshRef.current.geometry.attributes.normal as THREE.BufferAttribute
+      updateLocalNormals(arr, norm.array as Float32Array, gw, gh, r0, r1, c0, c1)
+      norm.needsUpdate = true
 
       // keep the (coarse) picking mesh's heights in sync too, so raycasting
       // during an active stroke reflects the ground the user is actively
@@ -271,7 +325,7 @@ export default function Scene3D() {
             const cls = st.material[idx]
             const dep = cls === 0 ? 0 : (depression.get(cls) ?? 0)
             const vi = (r * pgw + c) * 3
-            parr[vi + 1] = st.dem[idx] - dep + st.demDelta[idx]
+            parr[vi + 1] = st.dem[idx] - dep + st.demDelta[idx] + clearAt(st, idx)
           }
         }
       }
@@ -324,11 +378,11 @@ export default function Scene3D() {
       const r = Math.max(0, Math.min(st.meta.height - 1, Math.round(row)))
       const c = Math.max(0, Math.min(st.meta.width - 1, Math.round(col)))
       const idx = r * st.meta.width + c
-      const depression = materialDepressionTable(st.materials)
+      const depression = getDepressionTable(st.materials)
       const mat = st.material ?? new Uint16Array(0)
       const cls = mat.length ? mat[idx] : 0
       const dep = cls === 0 ? 0 : (depression.get(cls) ?? 0)
-      return st.dem[idx] - dep + (st.demDelta ? st.demDelta[idx] : 0)
+      return st.dem[idx] - dep + (st.demDelta ? st.demDelta[idx] : 0) + clearAt(st, idx)
     }
 
     // Keeps stamping at the last raycast cell every frame while a stroke is
@@ -370,10 +424,11 @@ export default function Scene3D() {
         radiusCells,
         st.brushStrengthMps,
         st.brushSoftness,
+        st.clearsBuildings ? st.clearDelta : null,
       )
       lastStampTime.current = performance.now()
       pointerCell.current = cell
-      const rect = strokeRef.current.stampAt(cell.row, cell.col, 0)
+      const rect = strokeRef.current.stampAt(cell.row, cell.col, INITIAL_TAP_DT)
       if (rect) updateLiveRegion(rect)
       dom.setPointerCapture(e.pointerId)
       if (brushTickId === null) brushTickId = requestAnimationFrame(brushTick)
@@ -405,6 +460,11 @@ export default function Scene3D() {
       const rec = strokeRef.current.finish()
       strokeRef.current = null
       dom.releasePointerCapture(e.pointerId)
+      // one real full-mesh normal recompute now that the stroke is over, so
+      // the per-stamp local approximation never has a chance to drift from
+      // what a full rebuild would produce (cheap here: once per stroke, not
+      // once per frame).
+      if (rec && meshRef.current) meshRef.current.geometry.computeVertexNormals()
       if (!rec) return
 
       const st = useStore.getState()
@@ -501,22 +561,25 @@ export default function Scene3D() {
     // bare terrain still renders.
     const mat = material ?? new Uint16Array(meta.width * meta.height)
     const delta = demDelta ?? new Float32Array(meta.width * meta.height)
-    const depression = materialDepressionTable(materials)
-    const z = computeEffectiveZ(dem, delta, mat, depression)
+    const depression = getDepressionTable(materials)
+    const z = computeEffectiveZ(dem, delta, mat, depression,
+                                clearsBuildings ? clearDelta : null)
 
     let validMin = Infinity
     for (let i = 0; i < dem.length; i++) {
       if (masksRgba[i * 4 + 3] > 127 && z[i] < validMin) validMin = z[i]
     }
     if (!isFinite(validMin)) validMin = 0
-    const fillZ = validMin - 2
 
-    // Skip any quad touching an invalid (no-survey-data) vertex entirely, so
-    // there's a genuine hole in the mesh there instead of a stretched wall
-    // running down to a filler plane - this also keeps raycasting from ever
-    // hitting a fake cliff face near the domain edge. (buildGridMesh applies
-    // this to both the display and picking meshes identically.)
-    const display = buildGridMesh(meta.width, meta.height, res, z, masksRgba, fillZ, stride)
+    // No-survey-data cells get the elevation of their nearest valid cell
+    // instead of either (a) a dropped quad, which left a real hole you could
+    // fly the camera through, or (b) a single flat fill height, which built
+    // a stretched cliff wherever the real terrain was far from that height.
+    // Nearest-neighbour extrapolation keeps the surface continuous with
+    // whatever terrain actually borders the gap.
+    const zFilled = fillInvalidNearest(z, masksRgba, meta.width, meta.height)
+
+    const display = buildGridMesh(meta.width, meta.height, res, zFilled, stride)
     const geo = new THREE.BufferGeometry()
     geo.setAttribute('position', new THREE.BufferAttribute(display.positions, 3))
     geo.setAttribute('uv', new THREE.BufferAttribute(display.uvs, 2))
@@ -525,7 +588,7 @@ export default function Scene3D() {
 
     // separate, coarse, never-rendered geometry used only for raycasting -
     // see PICK_STRIDE.
-    const pick = buildGridMesh(meta.width, meta.height, res, z, masksRgba, fillZ, PICK_STRIDE)
+    const pick = buildGridMesh(meta.width, meta.height, res, zFilled, PICK_STRIDE)
     pickGridRef.current = { stride: PICK_STRIDE, gw: pick.gw, gh: pick.gh }
     if (pickingMeshRef.current) pickingMeshRef.current.geometry.dispose()
     const pickGeo = new THREE.BufferGeometry()
@@ -561,6 +624,19 @@ export default function Scene3D() {
           overlayCanvas.getContext('2d')!.putImageData(overlay, 0, 0)
           ctx.drawImage(overlayCanvas, 0, 0)
         }
+
+        // the ortho export bakes literal black pixels into the no-survey-data
+        // area; now that that area has real (extrapolated) geometry instead
+        // of a hole, tint it to read as "no data" instead of showing those
+        // raw black pixels as if they were photographed ground - mirrors the
+        // 2D view's nodata overlay exactly.
+        const nodata = computeNodataOverlay(masksRgba, meta.width, meta.height)
+        const nodataCanvas = document.createElement('canvas')
+        nodataCanvas.width = meta.width
+        nodataCanvas.height = meta.height
+        nodataCanvas.getContext('2d')!.putImageData(new ImageData(nodata, meta.width, meta.height), 0, 0)
+        ctx.drawImage(nodataCanvas, 0, 0)
+
         textureCanvasRef.current = canvas
 
         const texture = textureRef.current ?? new THREE.CanvasTexture(canvas)
@@ -580,6 +656,24 @@ export default function Scene3D() {
         scene.add(mesh)
         meshRef.current = mesh
 
+        // Read the height the mesh ACTUALLY renders at a grid cell, straight
+        // off the geometry buffer. Every "is the terrain really fixed?" round
+        // trip so far has been argued from files and API responses, which
+        // cannot distinguish a stale browser or a rendering bug from bad data;
+        // this can. Kept deliberately: it costs nothing and closes that loop.
+        //   __scene3dDebug.getY(row, col)  -> metres, or null if not built yet
+        ;(window as unknown as Record<string, unknown>).__scene3dDebug = {
+          getY(row: number, col: number) {
+            const g = meshRef.current?.geometry
+            const grid = gridRef.current
+            if (!g || !grid) return null
+            const { stride, gw, gh } = grid
+            const r = Math.min(Math.round(row / stride), gh - 1)
+            const c = Math.min(Math.round(col / stride), gw - 1)
+            return (g.attributes.position.array as Float32Array)[(r * gw + c) * 3 + 1]
+          },
+        }
+
         if (!cameraFramed.current && cameraRef.current && controlsRef.current) {
           const cx = (meta.width * res) / 2
           const cz = (meta.height * res) / 2
@@ -595,7 +689,8 @@ export default function Scene3D() {
     return () => {
       disposed = true
     }
-  }, [meta, dem, masksRgba, material, demDelta, materials, editVersion, fullDetail])
+  }, [meta, dem, masksRgba, material, demDelta, clearDelta, clearsBuildings,
+      materials, editVersion, fullDetail])
 
   return (
     <div style={{ position: 'relative', height: '100%' }}>

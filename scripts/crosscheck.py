@@ -78,6 +78,7 @@ def cmd_run_ours(args):
     print(f"plain-mode run ({'closed' if args.closed else 'open'} borders): "
           f"{dem.shape[1]} x {dem.shape[0]} at {res} m, storm {storm['name']}")
     simulate(dem32, res, storm["steps"], storm["duration"], args.out,
+             scheme=args.scheme,
              manning=n32, valid=valid, rain_weight=rain_w,
              save_every=args.save_every, device=args.device,
              save_frames=False)
@@ -171,6 +172,9 @@ def main():
     r.add_argument("--out", required=True)
     r.add_argument("--save-every", type=float, default=300.0)
     r.add_argument("--device", default="auto")
+    r.add_argument("--scheme", default="inertial", choices=["inertial", "hllc"],
+                   help="flux scheme; 'hllc' is the shock-capturing Godunov "
+                        "option, which is what the independent engines use")
     r.add_argument("--closed", action="store_true",
                    help="wall the borders (match LISFLOOD closed edges)")
     r.set_defaults(func=cmd_run_ours)

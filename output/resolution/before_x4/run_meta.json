@@ -1,0 +1,67 @@
+{
+  "steps_mmh": [
+    [
+      0,
+      450,
+      12.8
+    ],
+    [
+      450,
+      1350,
+      88.8
+    ],
+    [
+      1350,
+      1800,
+      12.8
+    ]
+  ],
+  "duration": 3600.0,
+  "res": 2.0,
+  "device": "cuda",
+  "n_iterations": 23367,
+  "wall_s": 20.0,
+  "frames": [],
+  "vol_rain_m3": 209299.48,
+  "vol_infiltrated_m3": 1080.03,
+  "vol_drained_m3": 0.0,
+  "vol_outflow_m3": 155701.73,
+  "vol_stored_end_m3": 52516.66,
+  "closure_m3": 1.05,
+  "closure_rel": 5e-06,
+  "outflow_series_m3s": [],
+  "storage_series_m3": [
+    [
+      0.0,
+      126.9
+    ]
+  ],
+  "erosion": false,
+  "gauges": [
+    {
+      "name": "g1",
+      "row": 196,
+      "col": 75
+    },
+    {
+      "name": "g2",
+      "row": 52,
+      "col": 216
+    },
+    {
+      "name": "g3",
+      "row": 340,
+      "col": 0
+    },
+    {
+      "name": "g4",
+      "row": 127,
+      "col": 217
+    },
+    {
+      "name": "g5",
+      "row": 202,
+      "col": 206
+    }
+  ]
+}

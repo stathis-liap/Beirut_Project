@@ -1,0 +1,50 @@
+{
+  "rows": [
+    {
+      "storm": "v1_nov2025",
+      "variant": "base",
+      "desc": "inertial / constant infil / capacity gullies",
+      "before_m2": 82705.0,
+      "after_m2": 74914.0,
+      "reduction_pct": 9.420228523063901
+    },
+    {
+      "storm": "v1_nov2025",
+      "variant": "hllc",
+      "desc": "+ shock-capturing scheme",
+      "before_m2": 64234.75,
+      "after_m2": 58329.5,
+      "reduction_pct": 9.193232634983401
+    },
+    {
+      "storm": "v1_nov2025",
+      "variant": "green-ampt",
+      "desc": "+ Green-Ampt infiltration",
+      "before_m2": 73603.5,
+      "after_m2": 67633.75,
+      "reduction_pct": 8.110687671102596
+    },
+    {
+      "storm": "t50",
+      "variant": "base",
+      "desc": "inertial / constant infil / capacity gullies",
+      "before_m2": 117713.5,
+      "after_m2": 112807.0,
+      "reduction_pct": 4.168171025413398
+    },
+    {
+      "storm": "t50",
+      "variant": "green-ampt",
+      "desc": "+ Green-Ampt infiltration",
+      "before_m2": 113650.25,
+      "after_m2": 107788.25,
+      "reduction_pct": 5.157929700990539
+    }
+  ],
+  "erosion_ensemble_m2": [
+    113350.75,
+    112822.75,
+    112954.75
+  ],
+  "note": "reductions are the claim; absolutes are scheme-sensitive"
+}

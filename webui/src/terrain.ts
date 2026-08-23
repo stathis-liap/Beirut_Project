@@ -33,7 +33,7 @@ export async function fetchMasksRgba(width: number, height: number): Promise<Uin
 /** Zone tint + 1px boundary outline, computed from the packed masks RGBA
  * (G channel = zone, A channel = valid). Returned as a straight RGBA buffer
  * ready for putImageData. */
-export function computeZoneOverlay(masksRgba: Uint8ClampedArray, width: number, height: number): Uint8ClampedArray {
+export function computeZoneOverlay(masksRgba: Uint8ClampedArray, width: number, height: number): Uint8ClampedArray<ArrayBuffer> {
   const out = new Uint8ClampedArray(width * height * 4)
   const zoneAt = (x: number, y: number) => masksRgba[(y * width + x) * 4 + 1] > 127
 
@@ -61,7 +61,7 @@ export function computeZoneOverlay(masksRgba: Uint8ClampedArray, width: number, 
  * its bounding box) with a flat fill instead of the raw ortho export's baked-
  * in black pixels, so it reads as "nothing here" rather than a broken image.
  * A-channel of masksRgba is the valid mask. */
-export function computeNodataOverlay(masksRgba: Uint8ClampedArray, width: number, height: number): Uint8ClampedArray {
+export function computeNodataOverlay(masksRgba: Uint8ClampedArray, width: number, height: number): Uint8ClampedArray<ArrayBuffer> {
   const out = new Uint8ClampedArray(width * height * 4)
   for (let i = 0; i < width * height; i++) {
     const valid = masksRgba[i * 4 + 3] > 127
@@ -92,6 +92,69 @@ export function pixelToUtm(meta: Meta, col: number, row: number) {
   return { x, y }
 }
 
+/** Fills every no-survey-data cell with the elevation of its nearest valid
+ * cell (multi-source BFS on the grid graph, all valid cells as sources at
+ * once - equivalent to a nearest-neighbour distance-transform fill). Used so
+ * the 3D mesh can render a continuous surface across nodata regions (a real
+ * hole with camera can-see-through-it geometry, or a stretched cliff down to
+ * a single flat fill height, are both worse than extrapolating the terrain
+ * that's actually there). Purely a rendering fill - the underlying dem/valid
+ * data used by the solver is untouched. */
+export function fillInvalidNearest(z: Float32Array, masksRgba: Uint8ClampedArray, width: number, height: number): Float32Array {
+  const n = width * height
+  const out = new Float32Array(n)
+  const visited = new Uint8Array(n)
+  const queue = new Int32Array(n)
+  let qHead = 0
+  let qTail = 0
+  for (let i = 0; i < n; i++) {
+    if (masksRgba[i * 4 + 3] > 127) {
+      out[i] = z[i]
+      visited[i] = 1
+      queue[qTail++] = i
+    }
+  }
+  while (qHead < qTail) {
+    const idx = queue[qHead++]
+    const x = idx % width
+    const y = (idx / width) | 0
+    const val = out[idx]
+    if (x > 0) {
+      const j = idx - 1
+      if (!visited[j]) {
+        visited[j] = 1
+        out[j] = val
+        queue[qTail++] = j
+      }
+    }
+    if (x < width - 1) {
+      const j = idx + 1
+      if (!visited[j]) {
+        visited[j] = 1
+        out[j] = val
+        queue[qTail++] = j
+      }
+    }
+    if (y > 0) {
+      const j = idx - width
+      if (!visited[j]) {
+        visited[j] = 1
+        out[j] = val
+        queue[qTail++] = j
+      }
+    }
+    if (y < height - 1) {
+      const j = idx + width
+      if (!visited[j]) {
+        visited[j] = 1
+        out[j] = val
+        queue[qTail++] = j
+      }
+    }
+  }
+  return out
+}
+
 export function materialDepressionTable(materials: MaterialDef[]): Map<number, number> {
   const m = new Map<number, number>()
   for (const mat of materials) m.set(mat.id, mat.depression_m)
@@ -107,13 +170,15 @@ export function computeEffectiveZ(
   demDelta: Float32Array,
   material: Uint16Array,
   depression: Map<number, number>,
+  /** the corridor's building demolition, when the open design applies it */
+  clearDelta?: Float32Array | null,
 ): Float32Array {
   const n = dem.length
   const out = new Float32Array(n)
   for (let i = 0; i < n; i++) {
     const cls = material[i]
     const dep = cls === 0 ? 0 : depression.get(cls) ?? 0
-    out[i] = dem[i] - dep + demDelta[i]
+    out[i] = dem[i] - dep + demDelta[i] + (clearDelta ? clearDelta[i] : 0)
   }
   return out
 }
