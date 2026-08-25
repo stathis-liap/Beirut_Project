@@ -33,6 +33,169 @@ L_INTRO, L_CHAPTER, L_CONTENT, L_TEXT_IMG, L_TWO_IMG, L_BULLETS, L_OUTRO = \
     0, 1, 2, 3, 6, 7, 9
 
 
+# Speaker notes. Deliberately terse: a presenter scans these, they do not read
+# them aloud. "say" is the one message, "numbers" the figures to have ready,
+# "asked" the questions that slide reliably attracts.
+NOTES = {
+"Where the rain goes": dict(
+  say="A physics-based flood model of the Fouad Boutros right-of-way, from a 39 GB LiDAR "
+      "survey at half a metre. Three parts: how it works, how far it can be trusted, what "
+      "it says about the corridor.",
+  numbers=["39 GB airborne LiDAR", "0.5 m grid, 2.3 M cells"]),
+
+"Chapter: how the simulator works": dict(say="Section break."),
+
+"Rain falls on every cell": dict(
+  say="Rain-on-grid: rainfall lands on every cell and the water finds its own way "
+      "downhill. Nothing is pre-routed, so where flooding appears is a result, not an "
+      "input.",
+  numbers=["9 land-cover classes set infiltration, roughness, detention",
+           "25 Nov 2025: 25.4 mm in 30 min - only a 2-5 year burst",
+           "Mass balance closes to 3e-5 every run"],
+  asked=[("Why does an ordinary storm flood the city?",
+          "Not extreme rainfall. Ordinary rain on steep, sealed streets with limited "
+          "inlet capacity."),
+         ("Rain on roofs?", "Rerouted to the nearest street cell. Courtyards too.")]),
+
+"What makes it different": dict(
+  say="Two things. The physics other packages leave out - infiltration, detention, "
+      "gullies that respond to head - and a solver you can differentiate, so it can "
+      "design as well as predict.",
+  numbers=["None of the 19 packages in the EA benchmark model infiltration or green "
+           "infrastructure at all - they are hydraulics only",
+           "None is differentiable; ours gives d(flooded area)/d(design) to 2e-8",
+           "Two schemes in one code, so scheme error is measured, not assumed",
+           "Written in PyTorch on GPU - what makes the adjoint and ensembles affordable"],
+  asked=[("Why does differentiability matter?",
+          "It turns the model from a predictor into a designer. Instead of testing a "
+          "handful of layouts by hand you get the gradient of flooding with respect to "
+          "every cell of the design, and can optimise directly. Nothing else in the "
+          "field does this."),
+         ("Isn't this just another SWE solver?",
+          "The hydraulics are standard and deliberately so - that is what lets us "
+          "benchmark against everyone else. What is new is the surface model on top and "
+          "the fact that the whole thing is differentiable."),
+         ("What is it worse at?",
+          "No 1D sewer or river coupling, so two of the eight EA tests are out of scope. "
+          "And the shock-capturing scheme costs about 3.5x the fast one.")]),
+
+"The corridor, surface by surface": dict(
+  say="The design is written into the terrain cell by cell - seven surface types, each "
+      "with its own infiltration, roughness and detention depth.",
+  numbers=["31,828 m2 total", "Rain garden is 52% of it",
+           "Bioswales + ponds together under 4,000 m2"],
+  asked=[("How faithful is the layout?",
+          "SAY THIS UNPROMPTED. Zone polygon and alignment are real data. The "
+          "cross-section - band widths, where swales sit, pond and terrace placement - is "
+          "our reading of the published drawings plus what seemed hydraulically sensible. "
+          "Faithful in spirit, not a construction spec. If the design team shares real "
+          "dimensions it is a data swap and a re-run, not a rebuild."),
+         ("Which element does the work?",
+          "Mostly plain permeable ground, not the engineered features.")]),
+
+"Chapter: validation": dict(say="Section break."),
+
+"Against an independent solver": dict(
+  say="The strongest evidence here. A separate code, written by a different group, "
+      "solving the full equations with a different scheme, on the identical grid and "
+      "storm.",
+  numbers=["HLLC vs SynxFlow: IoU 0.913, corr 0.985, RMSE 3.7 cm",
+           "Inertial vs SynxFlow: IoU 0.690, RMSE 7.8 cm, +27% wet area",
+           "LISFLOOD-FP: fabricated 6x the input volume, failed its own mass balance"],
+  asked=[("Why is the fast scheme biased?",
+          "It drops the advective momentum term, so it smears the flood front. Matters "
+          "here because these streets run supercritical at 6-8 m/s on a 6% grade."),
+         ("Is LISFLOOD's failure our fault?",
+          "No - documented limitation of its scheme on terrain with retaining walls. Its "
+          "raster is void rather than merely different.")]),
+
+"Benchmark: Test 8A": dict(
+  say="The EA case closest to what we do: direct rainfall on a real dense street network. "
+      "We are inside the main cluster at all four gauges with published curves.",
+  numbers=["P1 0.579 · P2 0.239 · P3 0.726 · P6 0.064 m",
+           "19 packages in the published comparison",
+           "Dark bar excludes the report's own approximate codes"],
+  asked=[("Why only four points?", "Only four have published time series in the report."),
+         ("How accurate are the bands?",
+          "Read off the report's figures, so good to a centimetre or two. We sit well "
+          "inside them, not on the edges.")]),
+
+"Benchmark: Test 4": dict(
+  say="Tests how fast a flood front travels and how deep the water is behind it. In "
+      "cluster at all nine points, on both schemes.",
+  numbers=["Built from the written spec - the EA supplies no terrain file for this case",
+           "5 of 5 analytic tests pass: conservation, Manning normal depth, "
+           "well-balancedness, reference-port equivalence"],
+  asked=[("Why not all eight EA tests?",
+          "The rest need data files we do not have, and two need coupled 1D sewer or "
+          "river models we do not implement. Test 3 is the one worth acquiring - it "
+          "discriminates shock-capturing schemes, which is exactly our new capability.")]),
+
+"Resolution": dict(
+  say="The EA report says it is unclear whether finer than 2 m is worth it, and "
+      "recommends someone test at 0.5 m. This is that test.",
+  numbers=["0.5 m: 9.4% benefit · 2 m: 0.6%",
+           "Peak velocity climbs 4.3 -> 14.8 m/s as the grid coarsens",
+           "Same terrain coarsened, so only the grid changes"],
+  asked=[("Why does velocity go up?",
+          "Block-averaging manufactures artificial steep gradients while erasing the "
+          "kerbs and narrow streets that convey the water. Wrong direction and "
+          "physically implausible - that is the point."),
+         ("Is this a fair test?",
+          "Caveat honestly: coarsening is not identical to building natively at 2 m, "
+          "where roughness would be recalibrated. Direction and size are unambiguous.")]),
+
+"Chapter: Beirut": dict(say="Section break."),
+
+"Before and after": dict(
+  say="The observed storm, before and after, difference on the right. Blue is drier.",
+  numbers=["Effect extends beyond the ribbon into surrounding streets",
+           "The corridor follows a natural drainage axis - it is already where the water "
+           "wants to go"],
+  asked=[("What is the large square top-left?",
+          "A real deep excavation on a construction site, surveyed by the LiDAR and "
+          "modelled as a basin. Genuine terrain, not an artefact.")]),
+
+"Results": dict(
+  say="Over half the flooding removed underfoot in a frequent storm, about half in the "
+      "observed event, essentially nothing in a 50-year storm - which is the next slide.",
+  numbers=["Benefit reaches roughly two blocks, then fades",
+           "Metric excludes the fifth of the corridor dug out to hold water",
+           "Those cells are 20% of the ribbon but 34% of its wet area"],
+  asked=[("Why exclude the ponds?",
+          "Counting a full bioretention pond as flooding penalises the design for "
+          "working. The published study drew the same distinction.")]),
+
+"The severe storm, and a correction": dict(
+  say="In a 50-year storm the corridor stops keeping itself dry and starts protecting "
+      "everywhere else. Two different jobs; only the second survives an extreme event.",
+  numbers=["T50: area barely moves, but +2,124 m3 absorbed and outflow cut 11%",
+           "Infiltration multiple is 1.3x, NOT the 3x previously claimed",
+           "Absolute gain (~900 m3 observed storm) holds up"],
+  asked=[("Why did the infiltration claim shrink?",
+          "Better soil physics. Ordinary Beirut ground absorbs far more than a constant "
+          "rate implied, so the corridor's relative contribution is smaller. Better "
+          "physics, smaller claim - say it plainly.")]),
+
+"What would make this a validated model — the ask": dict(
+  say="Verified, not validated. It solves the equations correctly and agrees with an "
+      "independent solver to 3.7 cm - but every comparison is against another model, "
+      "never a measured flood in Beirut.",
+  numbers=["Needed: water marks at a few dozen streets after the next big storm",
+           "Plus a handful of low-cost depth loggers, and timing",
+           "No specialist equipment, no large team"],
+  asked=[("Can we use the numbers meanwhile?",
+          "Yes, with care. The study reports differences, and a systematic bias affects "
+          "both scenarios and largely cancels. Absolutes carry more uncertainty."),
+         ("How can we help?",
+          "OFFER THIS. The model already predicts where flooding concentrates, so we can "
+          "site the loggers and surveys efficiently. Makes it a collaboration, not a "
+          "favour.")]),
+
+"Close": dict(say="Thank you / questions."),
+}
+
+
 def strip_slides(prs):
     """Remove the template's example slides, keeping layouts and masters."""
     xml_slides = prs.slides._sldIdLst
@@ -156,8 +319,14 @@ def main():
     def add(layout):
         return prs.slides.add_slide(prs.slide_layouts[layout])
 
-    def note(title, body):
-        notes.append({"title": title, "notes": body})
+    def note(title):
+        """Compact speaker note, looked up from NOTES.
+
+        Deliberately not prose: a presenter scans this mid-talk, they do not
+        read it. One message, the figures, the questions it will attract."""
+        n = NOTES.get(title, {})
+        notes.append({"title": title, "say": n.get("say", ""),
+                      "numbers": n.get("numbers", []), "asked": n.get("asked", [])})
 
     # ---- 1 intro -----------------------------------------------------------
     s = add(L_INTRO)
@@ -166,15 +335,11 @@ def main():
     set_text(tb, ["Modelling the Al-Masar Al-Akhdar green corridor, Beirut",
                   "A 0.5 m rain-on-grid shallow-water model built from airborne LiDAR"],
              size=15, color=NAVY)
-    note("Where the rain goes",
-         "Opening. This is a physics-based flood model of the Fouad Boutros right-of-way "
-         "in Beirut, built from a 39 GB airborne LiDAR survey and run at half-metre "
-         "resolution. The talk has three parts: how the model works, how far it can be "
-         "trusted, and what it says about the proposed green corridor.")
+    note("Where the rain goes")
 
     # ---- 2 chapter ---------------------------------------------------------
     s = add(L_CHAPTER); title_of(s, "HOW THE SIMULATOR WORKS")
-    note("Chapter: how the simulator works", "Section break.")
+    note("Chapter: how the simulator works")
 
     # ---- 3 what it does ----------------------------------------------------
     s = add(L_TEXT_IMG)
@@ -193,23 +358,41 @@ def main():
                 "Mass balance closes to 3 × 10⁻⁵ every run",
             ], size=14)
     drop_ph(s, 10); fit(prs, s, f"{F}/storms.png", (6.95, 1.31, 6.05, 5.08))
-    note("Rain falls on every cell",
-         "The key modelling choice is rain-on-grid: rainfall is applied to every cell and "
-         "the water finds its own way downhill. Nothing is pre-routed, so where flooding "
-         "appears is a result rather than an input.\n\n"
-         "Each cell carries its own infiltration rate, surface roughness and detention "
-         "depth, derived from a nine-class land-cover classification of the LiDAR returns "
-         "and aerial imagery. Buildings stand as solid obstacles at roof height, and the "
-         "rain landing on roofs and enclosed courtyards is rerouted to the nearest street "
-         "cell, which is what a downspout does.\n\n"
-         "The figure shows the three design storms. The 25 November 2025 event is real: "
-         "25.4 mm in 30 minutes. By the Lebanese stormwater code's own intensity table "
-         "that is only a 2-5 year burst, yet it flooded Sassine Square and the Ring. The "
-         "flooding problem here is not extreme rainfall; it is ordinary rain on steep, "
-         "sealed streets.\n\n"
-         "Mass balance is checked every run — rain in equals infiltration plus drainage "
-         "plus outflow plus storage, closing to about one part in 30,000. A model that "
-         "loses water silently can produce any answer you like.")
+    note("Rain falls on every cell")
+
+    # ---- what makes it different -------------------------------------------
+    s = add(L_BULLETS)
+    title_of(s, "What makes it different")
+    for ph in s.placeholders:
+        if ph.placeholder_format.idx == 1:
+            set_text(ph, [
+                [("The physics other packages leave out", True), ("", False)],
+                "Per-cell infiltration with a wetting front (Green–Ampt), "
+                "surface detention, and gullies whose capture depends on the "
+                "head over the grate",
+                "None of the 19 packages in the UK EA benchmark models "
+                "infiltration or green infrastructure at all — they are "
+                "hydraulics only",
+                "",
+                [("A solver you can differentiate", True), ("", False)],
+                "Gradients of flooded area with respect to every cell of the "
+                "design, verified to 2 × 10⁻⁸",
+                "Turns the model from a predictor into a designer",
+            ], size=13)
+        if ph.placeholder_format.idx == 2:
+            set_text(ph, [
+                [("Built for this problem", True), ("", False)],
+                "Two schemes in one code — fast inertial and shock-capturing "
+                "HLLC — so scheme error is measured, not assumed",
+                "Sub-metre on a real city: 2.3 M cells, and we show resolution "
+                "decides the answer",
+                "PyTorch on GPU — what makes the adjoint and ensembles affordable",
+                "Opt-in erosion sub-model for the soft landscape",
+                [("What it does not do:", True),
+                 (" no coupled 1-D sewer or river model; shock capturing costs "
+                  "~3.5× the fast scheme", False)],
+            ], size=12, space=8)
+    note("What makes it different")
 
     # ---- 4 the corridor ----------------------------------------------------
     s = add(L_TEXT_IMG)
@@ -231,40 +414,11 @@ def main():
                   "construction specification.", False)],
             ], size=13)
     drop_ph(s, 10); fit(prs, s, f"{F}/corridor_materials.png", (6.95, 1.31, 6.05, 5.08))
-    note("The corridor, surface by surface",
-         "The design is not a polygon with an average infiltration rate. Each of the seven "
-         "surface types in the published cross-section — vehicular lane, porous bikelane, "
-         "bioswale, porous sidewalk, rain garden, terrace, bioretention pond — is written "
-         "into the terrain cell by cell with its own infiltration rate, Manning roughness "
-         "and detention depth.\n\n"
-         "Worth knowing before someone asks which element does the work: rain garden is "
-         "over half the corridor by area. The specialist detention features, the bioswales "
-         "and bioretention ponds, together come to under 4,000 m². Most of the benefit "
-         "comes from plain permeable ground, not from engineered structures.\n\n"
-         "The corridor also demolishes buildings in its path. Those are identified from the "
-         "official highway alignment, excluding heritage and institutional buildings which "
-         "the real scheme preserves and repurposes, and cleared from the terrain before the "
-         "corridor is laid down.\n\n"
-         "IMPORTANT TO SAY OUT LOUD, and do not wait to be asked. The internal structure of "
-         "the corridor here is our interpretation. We had the official zone polygon and the "
-         "right-of-way alignment as data, but the cross-section — how wide the bikelane is, "
-         "where the bioswale sits relative to the sidewalk, where the ponds and terraces go "
-         "— was read off the published design drawings by eye and completed with what "
-         "seemed hydraulically sensible. Band widths follow the drawing as we read it; "
-         "bioretention ponds are placed at terrain low points and terraces on the steep "
-         "segments, which is standard practice and also where our own model independently "
-         "shows water collecting.\n\n"
-         "So this is a faithful-in-spirit representation, not a construction specification. "
-         "If the design team can share the actual cross-section dimensions and element "
-         "positions, we can drop them straight in and re-run — the pipeline takes a "
-         "material raster, so it is a data swap rather than a rebuild. The headline "
-         "conclusions are unlikely to move much, because they are driven by total permeable "
-         "area and where the corridor sits in the catchment rather than by the exact "
-         "arrangement within it — but that is an expectation, not a tested claim.")
+    note("The corridor, surface by surface")
 
     # ---- 5 chapter ---------------------------------------------------------
     s = add(L_CHAPTER); title_of(s, "CAN IT BE TRUSTED?")
-    note("Chapter: validation", "Section break.")
+    note("Chapter: validation")
 
     # ---- 6 vs other software ----------------------------------------------
     s = add(L_TEXT_IMG)
@@ -283,24 +437,7 @@ def main():
                  "the input volume and failed its own mass balance", False)],
             ], size=14)
     drop_ph(s, 10); fit(prs, s, f"{F}/validation_synxflow.png", (6.95, 1.31, 6.05, 5.08))
-    note("Against an independent solver",
-         "This is the strongest evidence in the deck. SynxFlow is a separate piece of "
-         "software, written by a different group, solving the full shallow-water equations "
-         "with a different numerical scheme. We ran it on the identical 0.5 m corridor grid "
-         "and the identical storm.\n\n"
-         "Our shock-capturing scheme agrees with it to an extent IoU of 0.913 and a depth "
-         "RMSE of 3.7 cm. For context, the UK Environment Agency's own benchmark exercise "
-         "saw worse agreement between commercial packages on a much gentler test case.\n\n"
-         "The comparison also exposed something about our own fast scheme: it spreads water "
-         "over 27 % more area than the full solver. That is a known characteristic of "
-         "simplified three-term schemes — they smear the flood front because they drop the "
-         "advective momentum term. It matters here because these streets run supercritical "
-         "at 6-8 m/s on a 6 % grade.\n\n"
-         "A third engine, LISFLOOD-FP, could not be used at all. On this stepped terrain it "
-         "fabricated roughly six times the input water volume and failed its own mass "
-         "balance check, so its output is void rather than merely different. That is a "
-         "documented limitation of its scheme on terrain with retaining walls, not a bug we "
-         "introduced.")
+    note("Against an independent solver")
 
     # ---- 7 benchmark 8A ---------------------------------------------------
     s = add(L_TEXT_IMG)
@@ -317,22 +454,7 @@ def main():
                 "Mass balance closed to −0.000 % on the benchmark run",
             ], size=14)
     drop_ph(s, 10); fit(prs, s, f"{F}/benchmark_ea8.png", (6.95, 1.31, 6.05, 5.08))
-    note("Benchmark: Test 8A",
-         "Of the eight EA benchmark cases this is the one closest to what we actually do: "
-         "rain applied directly onto a real, dense urban street network — the Glasgow test "
-         "site — with no inflow hydrograph and no drainage network.\n\n"
-         "The grey bars show the published spread of the 19 packages that took part. The "
-         "darker inner bar is what the report calls the main cluster: it excludes the "
-         "simplified 'volume-spreading' codes that the report itself describes as "
-         "approximate. Being inside the cluster is the stronger claim, and we are inside it "
-         "at all four gauges where the report publishes curves.\n\n"
-         "Only four of the nine output points have published time series in the report, "
-         "which is why the figure shows four. Our values at the other five are in the "
-         "results file but there is nothing to compare them against.\n\n"
-         "One caveat to give if pressed: the published bands here were read off the "
-         "report's figures rather than obtained as data, so they are good to a centimetre "
-         "or two. That is not enough to change the verdict — our points sit well inside the "
-         "bands, not on their edges.")
+    note("Benchmark: Test 8A")
 
     # ---- 8 benchmark Test 4 -----------------------------------------------
     s = add(L_TEXT_IMG)
@@ -352,25 +474,7 @@ def main():
                   "reference-port equivalence", False)],
             ], size=14)
     drop_ph(s, 10); fit(prs, s, f"{F}/benchmark_ea4.png", (6.95, 1.31, 6.05, 5.08))
-    note("Benchmark: Test 4",
-         "Test 4 is a flat floodplain filled from a breach, and it tests something 8A does "
-         "not: how fast an advancing flood front travels and how deep the water is behind "
-         "it. The grey band is the envelope of the 19 published packages; we sit inside it "
-         "at all nine points along the cross-section, on both our schemes.\n\n"
-         "This one we built ourselves from the written specification, because the EA report "
-         "states that no terrain file is supplied — the floodplain is flat at elevation "
-         "zero and every other parameter is given numerically. That makes it reproducible "
-         "without the benchmark data package.\n\n"
-         "Underneath both benchmarks sit five analytic tests where the correct answer is "
-         "known exactly: volume conservation in a closed basin, steady runoff matching the "
-         "Manning normal depth to within half a millimetre, still water staying still over "
-         "an uneven bed, and agreement with an independent reference implementation to "
-         "0.027 mm.\n\n"
-         "If asked why not all eight EA tests: the remaining cases need terrain and "
-         "boundary files we do not have, and two of them require coupled 1-D sewer or river "
-         "models, which this tool does not implement. Test 3 in particular would be worth "
-         "acquiring — it is the case that discriminates shock-capturing schemes, which is "
-         "exactly our new capability.")
+    note("Benchmark: Test 4")
 
     # ---- 8 resolution ------------------------------------------------------
     s = add(L_TEXT_IMG)
@@ -390,29 +494,11 @@ def main():
                 "between measuring the effect and missing it",
             ], size=14)
     drop_ph(s, 10); fit(prs, s, f"{F}/resolution.png", (6.95, 1.31, 6.05, 5.08))
-    note("Resolution",
-         "This slide answers a question the EA benchmark report explicitly says is "
-         "unresolved: whether resolutions finer than 2 m are worth the cost. The report "
-         "recommends someone test it at 0.5 m. As far as we know nobody had, and we are "
-         "well placed to because we have a real dense city surveyed at half a metre.\n\n"
-         "The method matters for fairness. We coarsened the same terrain step by step "
-         "rather than rebuilding a model at each resolution, so the survey, the land cover "
-         "and the corridor design are all held fixed and the computational grid is the only "
-         "thing that changes.\n\n"
-         "The result is stark. At 2 m — the resolution the benchmark itself uses — the "
-         "corridor's measured benefit falls from 9.4 % to 0.6 %. A study run at that "
-         "resolution would conclude the green corridor does essentially nothing.\n\n"
-         "Peak velocity meanwhile rises as the grid coarsens, from 4.3 to 14.8 m/s, which "
-         "is both the wrong direction and physically implausible. Block-averaging "
-         "manufactures artificial steep gradients between cells while erasing the kerbs and "
-         "narrow streets that actually convey the water.\n\n"
-         "Honest caveat if pressed: coarsening an existing terrain is not identical to "
-         "building a model natively at 2 m, where roughness would normally be recalibrated "
-         "to compensate. The direction and size of the effect are nonetheless unambiguous.")
+    note("Resolution")
 
     # ---- 9 chapter ---------------------------------------------------------
     s = add(L_CHAPTER); title_of(s, "BEIRUT: THE GREEN CORRIDOR")
-    note("Chapter: Beirut", "Section break.")
+    note("Chapter: Beirut")
 
     # ---- 10 before / after -------------------------------------------------
     s = add(L_CONTENT)
@@ -422,17 +508,7 @@ def main():
     caption(s, "Peak water depth. Teal outline = the right-of-way ribbon. "
                "Right panel: blue is drier after the corridor is built.",
             (0.41, 6.35, 12.60, 0.5))
-    note("Before and after",
-         "The observed 25 November 2025 storm, before and after the corridor, with the "
-         "difference on the right. Blue means drier after.\n\n"
-         "Two things to point out on the map. First, the effect is not confined to the "
-         "ribbon itself — the blue extends into the surrounding street network, because the "
-         "corridor intercepts runoff coming down from the Achrafieh side before it reaches "
-         "those streets. Second, the corridor follows a natural drainage axis, which is why "
-         "it works: it is already where the water wants to go.\n\n"
-         "If asked about the large square feature near the top left: that is a real deep "
-         "excavation on a construction site, which the LiDAR surveyed and which we model as "
-         "a basin. It is genuine terrain, not an artefact.")
+    note("Before and after")
 
     # ---- 11 results --------------------------------------------------------
     s = add(L_TEXT_IMG)
@@ -452,20 +528,7 @@ def main():
         if ph.placeholder_format.idx == 1:
             set_text(ph, rows, size=14)
     drop_ph(s, 10); fit(prs, s, f"{F}/beirut_bands.png", (6.95, 1.31, 6.05, 5.08))
-    note("Results",
-         "These are the headline numbers, measured on the corridor's walkable surface.\n\n"
-         "In a frequent storm the corridor removes well over half the flooding from the "
-         "surfaces people actually walk on. In the observed November event, about half. In "
-         "a 50-year storm, essentially nothing — and that deserves explanation rather than "
-         "burial, which is the next slide.\n\n"
-         "The metric matters. About a fifth of the corridor is deliberately dug out as "
-         "bioswales, rain gardens and terraces. Those hold water on purpose. Counting a "
-         "full bioretention pond as 'flooding' penalises the design for working, so the "
-         "headline figure excludes them. Those cells are 20 % of the corridor but 34 % of "
-         "its wet area, which is why the two ways of measuring diverge.\n\n"
-         "The bar chart shows the benefit by distance from the corridor. It reaches roughly "
-         "two blocks — about 25-50 m — before fading, which is a useful planning number: "
-         "this is a linear intervention with a local catchment, not a city-wide fix.")
+    note("Results")
 
     # ---- 12 water balance --------------------------------------------------
     s = add(L_TEXT_IMG)
@@ -487,25 +550,7 @@ def main():
                   f"absorbs far more than a constant rate implied.", False)],
             ], size=14)
     drop_ph(s, 10); fit(prs, s, f"{F}/beirut_water_balance.png", (6.95, 1.31, 6.05, 5.08))
-    note("The severe storm, and a correction",
-         "This is the most interesting result and the one most likely to be challenged.\n\n"
-         "In a 50-year storm the corridor stops reducing the flooded area on its own "
-         "footprint. But it is still doing hydrological work: it absorbs over two thousand "
-         "cubic metres more water than the same ground did before, and cuts the volume "
-         "heading for the port by about a tenth. Its swales and ponds fill and hold. The "
-         "water is on the corridor by design instead of running down the surrounding "
-         "streets.\n\n"
-         "So the corridor has two different jobs — keeping its own surface usable, and "
-         "protecting what is downstream — and only the second survives an extreme event. "
-         "That is a more useful message for a planner than a single percentage.\n\n"
-         "The correction on this slide should be stated plainly rather than left for "
-         "someone to find. The earlier version of this study credited the corridor with "
-         "roughly tripling infiltration. With a proper wetting-front infiltration model "
-         "(Green-Ampt) the multiple is about 1.3. The absolute volume gain holds up — "
-         "around 900 cubic metres in the observed storm, inside the previously published "
-         "range — but ordinary Beirut ground turns out to absorb far more than the earlier "
-         "constant-rate model implied, so the corridor's relative contribution is smaller. "
-         "Better physics, smaller claim.")
+    note("The severe storm, and a correction")
 
     # ---- caveats + the ask -------------------------------------------------
     s = add(L_BULLETS)
@@ -536,39 +581,12 @@ def main():
                 "A measured error, not an inter-model one — and results that "
                 "can carry planning decisions with confidence",
             ], size=13)
-    note("What would make this a validated model — the ask",
-         "This is the slide to deliver carefully, because it is both the honest caveat and "
-         "the request.\n\n"
-         "Make the distinction clearly first: the model is VERIFIED — it solves the "
-         "equations correctly, reproduces analytic solutions, passes two international "
-         "benchmarks and agrees with an independently written solver to 3.7 cm. What it is "
-         "not is VALIDATED, because every one of those comparisons is against another "
-         "model. We have observed rainfall for 25 November 2025, but no measured flood "
-         "depths, extents or timings anywhere in the study area.\n\n"
-         "Then make the ask, positively rather than apologetically. This gap cannot be "
-         "closed by better modelling, more computing time or another benchmark. It can only "
-         "be closed by measurement, and the measurement needed is genuinely modest: after "
-         "the next significant storm, photographs and levelled water marks at a few dozen "
-         "street locations, ideally within a day or two while the marks are still legible. "
-         "A handful of inexpensive depth loggers at known ponding points would add timing. "
-         "None of this requires specialist equipment or a large team.\n\n"
-         "Be explicit about the value: with that data the study reports a measured error "
-         "against reality rather than an agreement with other models, and its results can "
-         "carry planning decisions with real confidence. Without it, everything here "
-         "remains a well-built and well-tested hypothesis.\n\n"
-         "Offer to help design the campaign — where to place loggers, which streets matter "
-         "most — since the model already predicts where flooding concentrates and can be "
-         "used to site the measurements efficiently. That turns the request into a "
-         "collaboration rather than a favour.\n\n"
-         "If asked whether the current numbers are usable meanwhile: yes, with care. The "
-         "study reports differences — before versus after — and a systematic bias affects "
-         "both scenarios and largely cancels. Absolute depths carry more uncertainty than "
-         "the comparisons do.")
+    note("What would make this a validated model — the ask")
 
     # ---- 14 outro ----------------------------------------------------------
     s = add(L_OUTRO)
     title_of(s, "Questions")
-    note("Close", "Thank you / questions.")
+    note("Close")
 
     prs.save(a.out)
     json.dump(notes, open(a.notes, "w"), indent=2)

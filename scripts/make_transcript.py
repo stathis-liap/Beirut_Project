@@ -110,16 +110,25 @@ def main():
 
 \vspace{4pt}{\color{rule}\hrule height 2pt}\vspace{10pt}
 
-These notes accompany the slide deck. Each entry gives the argument to make, the
-numbers behind it, and the answers to the questions that slide is most likely to
-attract. Read the \emph{Key numbers} table at the end before presenting --- everything
-quoted on the slides is drawn from it.
+Built to be scanned, not read aloud. Each slide gives one \textbf{Say} line --- the
+single message --- then the figures to have ready, then the questions that slide
+reliably attracts. The \emph{Key numbers} page at the end carries every number quoted
+on the slides.
 """)
 
-    for i, s in enumerate(slides, 1):
-        body.append(r"\slidehdr{%d}{%s}" % (i, tex_escape(s["title"])))
-        for para in s["notes"].split("\n\n"):
-            body.append(tex_escape(para.strip()))
+    for i, sl in enumerate(slides, 1):
+        body.append(r"\slidehdr{%d}{%s}" % (i, tex_escape(sl["title"])))
+        if sl.get("say"):
+            body.append(r"{\color{teal}\bfseries Say:} %s" % tex_escape(sl["say"]))
+        if sl.get("numbers"):
+            body.append(r"\vspace{-3pt}\begin{itemize}[leftmargin=14pt,itemsep=1pt,"
+                        r"topsep=2pt,parsep=0pt]")
+            for nline in sl["numbers"]:
+                body.append(r"\item %s" % tex_escape(nline))
+            body.append(r"\end{itemize}")
+        for q, ans in sl.get("asked", []):
+            body.append(r"\vspace{-2pt}{\color{grey}\itshape %s} \\ %s"
+                        % (tex_escape(q), tex_escape(ans)))
 
     # ---- reference tables --------------------------------------------------
     body.append(r"\clearpage")

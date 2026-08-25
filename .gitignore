@@ -40,3 +40,11 @@ __pycache__/
 webui/node_modules/
 webui/dist/
 output/sandbox/
+
+# Third-party engine working directories (multi-GB .dat fields; the
+# comparison summaries in output/crosscheck/*.json are what we keep)
+output/crosscheck/synx_*/
+output/ea8/lisflood/
+
+# LaTeX sources emitted by the report/notes generators
+output/presentation/*.tex

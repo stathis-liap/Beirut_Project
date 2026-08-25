@@ -1,62 +1,231 @@
 [
   {
     "title": "Where the rain goes",
-    "notes": "Opening. This is a physics-based flood model of the Fouad Boutros right-of-way in Beirut, built from a 39 GB airborne LiDAR survey and run at half-metre resolution. The talk has three parts: how the model works, how far it can be trusted, and what it says about the proposed green corridor."
+    "say": "A physics-based flood model of the Fouad Boutros right-of-way, from a 39 GB LiDAR survey at half a metre. Three parts: how it works, how far it can be trusted, what it says about the corridor.",
+    "numbers": [
+      "39 GB airborne LiDAR",
+      "0.5 m grid, 2.3 M cells"
+    ],
+    "asked": []
   },
   {
     "title": "Chapter: how the simulator works",
-    "notes": "Section break."
+    "say": "Section break.",
+    "numbers": [],
+    "asked": []
   },
   {
     "title": "Rain falls on every cell",
-    "notes": "The key modelling choice is rain-on-grid: rainfall is applied to every cell and the water finds its own way downhill. Nothing is pre-routed, so where flooding appears is a result rather than an input.\n\nEach cell carries its own infiltration rate, surface roughness and detention depth, derived from a nine-class land-cover classification of the LiDAR returns and aerial imagery. Buildings stand as solid obstacles at roof height, and the rain landing on roofs and enclosed courtyards is rerouted to the nearest street cell, which is what a downspout does.\n\nThe figure shows the three design storms. The 25 November 2025 event is real: 25.4 mm in 30 minutes. By the Lebanese stormwater code's own intensity table that is only a 2-5 year burst, yet it flooded Sassine Square and the Ring. The flooding problem here is not extreme rainfall; it is ordinary rain on steep, sealed streets.\n\nMass balance is checked every run \u2014 rain in equals infiltration plus drainage plus outflow plus storage, closing to about one part in 30,000. A model that loses water silently can produce any answer you like."
+    "say": "Rain-on-grid: rainfall lands on every cell and the water finds its own way downhill. Nothing is pre-routed, so where flooding appears is a result, not an input.",
+    "numbers": [
+      "9 land-cover classes set infiltration, roughness, detention",
+      "25 Nov 2025: 25.4 mm in 30 min - only a 2-5 year burst",
+      "Mass balance closes to 3e-5 every run"
+    ],
+    "asked": [
+      [
+        "Why does an ordinary storm flood the city?",
+        "Not extreme rainfall. Ordinary rain on steep, sealed streets with limited inlet capacity."
+      ],
+      [
+        "Rain on roofs?",
+        "Rerouted to the nearest street cell. Courtyards too."
+      ]
+    ]
+  },
+  {
+    "title": "What makes it different",
+    "say": "Two things. The physics other packages leave out - infiltration, detention, gullies that respond to head - and a solver you can differentiate, so it can design as well as predict.",
+    "numbers": [
+      "None of the 19 packages in the EA benchmark model infiltration or green infrastructure at all - they are hydraulics only",
+      "None is differentiable; ours gives d(flooded area)/d(design) to 2e-8",
+      "Two schemes in one code, so scheme error is measured, not assumed",
+      "Written in PyTorch on GPU - what makes the adjoint and ensembles affordable"
+    ],
+    "asked": [
+      [
+        "Why does differentiability matter?",
+        "It turns the model from a predictor into a designer. Instead of testing a handful of layouts by hand you get the gradient of flooding with respect to every cell of the design, and can optimise directly. Nothing else in the field does this."
+      ],
+      [
+        "Isn't this just another SWE solver?",
+        "The hydraulics are standard and deliberately so - that is what lets us benchmark against everyone else. What is new is the surface model on top and the fact that the whole thing is differentiable."
+      ],
+      [
+        "What is it worse at?",
+        "No 1D sewer or river coupling, so two of the eight EA tests are out of scope. And the shock-capturing scheme costs about 3.5x the fast one."
+      ]
+    ]
   },
   {
     "title": "The corridor, surface by surface",
-    "notes": "The design is not a polygon with an average infiltration rate. Each of the seven surface types in the published cross-section \u2014 vehicular lane, porous bikelane, bioswale, porous sidewalk, rain garden, terrace, bioretention pond \u2014 is written into the terrain cell by cell with its own infiltration rate, Manning roughness and detention depth.\n\nWorth knowing before someone asks which element does the work: rain garden is over half the corridor by area. The specialist detention features, the bioswales and bioretention ponds, together come to under 4,000 m\u00b2. Most of the benefit comes from plain permeable ground, not from engineered structures.\n\nThe corridor also demolishes buildings in its path. Those are identified from the official highway alignment, excluding heritage and institutional buildings which the real scheme preserves and repurposes, and cleared from the terrain before the corridor is laid down.\n\nIMPORTANT TO SAY OUT LOUD, and do not wait to be asked. The internal structure of the corridor here is our interpretation. We had the official zone polygon and the right-of-way alignment as data, but the cross-section \u2014 how wide the bikelane is, where the bioswale sits relative to the sidewalk, where the ponds and terraces go \u2014 was read off the published design drawings by eye and completed with what seemed hydraulically sensible. Band widths follow the drawing as we read it; bioretention ponds are placed at terrain low points and terraces on the steep segments, which is standard practice and also where our own model independently shows water collecting.\n\nSo this is a faithful-in-spirit representation, not a construction specification. If the design team can share the actual cross-section dimensions and element positions, we can drop them straight in and re-run \u2014 the pipeline takes a material raster, so it is a data swap rather than a rebuild. The headline conclusions are unlikely to move much, because they are driven by total permeable area and where the corridor sits in the catchment rather than by the exact arrangement within it \u2014 but that is an expectation, not a tested claim."
+    "say": "The design is written into the terrain cell by cell - seven surface types, each with its own infiltration, roughness and detention depth.",
+    "numbers": [
+      "31,828 m2 total",
+      "Rain garden is 52% of it",
+      "Bioswales + ponds together under 4,000 m2"
+    ],
+    "asked": [
+      [
+        "How faithful is the layout?",
+        "SAY THIS UNPROMPTED. Zone polygon and alignment are real data. The cross-section - band widths, where swales sit, pond and terrace placement - is our reading of the published drawings plus what seemed hydraulically sensible. Faithful in spirit, not a construction spec. If the design team shares real dimensions it is a data swap and a re-run, not a rebuild."
+      ],
+      [
+        "Which element does the work?",
+        "Mostly plain permeable ground, not the engineered features."
+      ]
+    ]
   },
   {
     "title": "Chapter: validation",
-    "notes": "Section break."
+    "say": "Section break.",
+    "numbers": [],
+    "asked": []
   },
   {
     "title": "Against an independent solver",
-    "notes": "This is the strongest evidence in the deck. SynxFlow is a separate piece of software, written by a different group, solving the full shallow-water equations with a different numerical scheme. We ran it on the identical 0.5 m corridor grid and the identical storm.\n\nOur shock-capturing scheme agrees with it to an extent IoU of 0.913 and a depth RMSE of 3.7 cm. For context, the UK Environment Agency's own benchmark exercise saw worse agreement between commercial packages on a much gentler test case.\n\nThe comparison also exposed something about our own fast scheme: it spreads water over 27 % more area than the full solver. That is a known characteristic of simplified three-term schemes \u2014 they smear the flood front because they drop the advective momentum term. It matters here because these streets run supercritical at 6-8 m/s on a 6 % grade.\n\nA third engine, LISFLOOD-FP, could not be used at all. On this stepped terrain it fabricated roughly six times the input water volume and failed its own mass balance check, so its output is void rather than merely different. That is a documented limitation of its scheme on terrain with retaining walls, not a bug we introduced."
+    "say": "The strongest evidence here. A separate code, written by a different group, solving the full equations with a different scheme, on the identical grid and storm.",
+    "numbers": [
+      "HLLC vs SynxFlow: IoU 0.913, corr 0.985, RMSE 3.7 cm",
+      "Inertial vs SynxFlow: IoU 0.690, RMSE 7.8 cm, +27% wet area",
+      "LISFLOOD-FP: fabricated 6x the input volume, failed its own mass balance"
+    ],
+    "asked": [
+      [
+        "Why is the fast scheme biased?",
+        "It drops the advective momentum term, so it smears the flood front. Matters here because these streets run supercritical at 6-8 m/s on a 6% grade."
+      ],
+      [
+        "Is LISFLOOD's failure our fault?",
+        "No - documented limitation of its scheme on terrain with retaining walls. Its raster is void rather than merely different."
+      ]
+    ]
   },
   {
     "title": "Benchmark: Test 8A",
-    "notes": "Of the eight EA benchmark cases this is the one closest to what we actually do: rain applied directly onto a real, dense urban street network \u2014 the Glasgow test site \u2014 with no inflow hydrograph and no drainage network.\n\nThe grey bars show the published spread of the 19 packages that took part. The darker inner bar is what the report calls the main cluster: it excludes the simplified 'volume-spreading' codes that the report itself describes as approximate. Being inside the cluster is the stronger claim, and we are inside it at all four gauges where the report publishes curves.\n\nOnly four of the nine output points have published time series in the report, which is why the figure shows four. Our values at the other five are in the results file but there is nothing to compare them against.\n\nOne caveat to give if pressed: the published bands here were read off the report's figures rather than obtained as data, so they are good to a centimetre or two. That is not enough to change the verdict \u2014 our points sit well inside the bands, not on their edges."
+    "say": "The EA case closest to what we do: direct rainfall on a real dense street network. We are inside the main cluster at all four gauges with published curves.",
+    "numbers": [
+      "P1 0.579 \u00b7 P2 0.239 \u00b7 P3 0.726 \u00b7 P6 0.064 m",
+      "19 packages in the published comparison",
+      "Dark bar excludes the report's own approximate codes"
+    ],
+    "asked": [
+      [
+        "Why only four points?",
+        "Only four have published time series in the report."
+      ],
+      [
+        "How accurate are the bands?",
+        "Read off the report's figures, so good to a centimetre or two. We sit well inside them, not on the edges."
+      ]
+    ]
   },
   {
     "title": "Benchmark: Test 4",
-    "notes": "Test 4 is a flat floodplain filled from a breach, and it tests something 8A does not: how fast an advancing flood front travels and how deep the water is behind it. The grey band is the envelope of the 19 published packages; we sit inside it at all nine points along the cross-section, on both our schemes.\n\nThis one we built ourselves from the written specification, because the EA report states that no terrain file is supplied \u2014 the floodplain is flat at elevation zero and every other parameter is given numerically. That makes it reproducible without the benchmark data package.\n\nUnderneath both benchmarks sit five analytic tests where the correct answer is known exactly: volume conservation in a closed basin, steady runoff matching the Manning normal depth to within half a millimetre, still water staying still over an uneven bed, and agreement with an independent reference implementation to 0.027 mm.\n\nIf asked why not all eight EA tests: the remaining cases need terrain and boundary files we do not have, and two of them require coupled 1-D sewer or river models, which this tool does not implement. Test 3 in particular would be worth acquiring \u2014 it is the case that discriminates shock-capturing schemes, which is exactly our new capability."
+    "say": "Tests how fast a flood front travels and how deep the water is behind it. In cluster at all nine points, on both schemes.",
+    "numbers": [
+      "Built from the written spec - the EA supplies no terrain file for this case",
+      "5 of 5 analytic tests pass: conservation, Manning normal depth, well-balancedness, reference-port equivalence"
+    ],
+    "asked": [
+      [
+        "Why not all eight EA tests?",
+        "The rest need data files we do not have, and two need coupled 1D sewer or river models we do not implement. Test 3 is the one worth acquiring - it discriminates shock-capturing schemes, which is exactly our new capability."
+      ]
+    ]
   },
   {
     "title": "Resolution",
-    "notes": "This slide answers a question the EA benchmark report explicitly says is unresolved: whether resolutions finer than 2 m are worth the cost. The report recommends someone test it at 0.5 m. As far as we know nobody had, and we are well placed to because we have a real dense city surveyed at half a metre.\n\nThe method matters for fairness. We coarsened the same terrain step by step rather than rebuilding a model at each resolution, so the survey, the land cover and the corridor design are all held fixed and the computational grid is the only thing that changes.\n\nThe result is stark. At 2 m \u2014 the resolution the benchmark itself uses \u2014 the corridor's measured benefit falls from 9.4 % to 0.6 %. A study run at that resolution would conclude the green corridor does essentially nothing.\n\nPeak velocity meanwhile rises as the grid coarsens, from 4.3 to 14.8 m/s, which is both the wrong direction and physically implausible. Block-averaging manufactures artificial steep gradients between cells while erasing the kerbs and narrow streets that actually convey the water.\n\nHonest caveat if pressed: coarsening an existing terrain is not identical to building a model natively at 2 m, where roughness would normally be recalibrated to compensate. The direction and size of the effect are nonetheless unambiguous."
+    "say": "The EA report says it is unclear whether finer than 2 m is worth it, and recommends someone test at 0.5 m. This is that test.",
+    "numbers": [
+      "0.5 m: 9.4% benefit \u00b7 2 m: 0.6%",
+      "Peak velocity climbs 4.3 -> 14.8 m/s as the grid coarsens",
+      "Same terrain coarsened, so only the grid changes"
+    ],
+    "asked": [
+      [
+        "Why does velocity go up?",
+        "Block-averaging manufactures artificial steep gradients while erasing the kerbs and narrow streets that convey the water. Wrong direction and physically implausible - that is the point."
+      ],
+      [
+        "Is this a fair test?",
+        "Caveat honestly: coarsening is not identical to building natively at 2 m, where roughness would be recalibrated. Direction and size are unambiguous."
+      ]
+    ]
   },
   {
     "title": "Chapter: Beirut",
-    "notes": "Section break."
+    "say": "Section break.",
+    "numbers": [],
+    "asked": []
   },
   {
     "title": "Before and after",
-    "notes": "The observed 25 November 2025 storm, before and after the corridor, with the difference on the right. Blue means drier after.\n\nTwo things to point out on the map. First, the effect is not confined to the ribbon itself \u2014 the blue extends into the surrounding street network, because the corridor intercepts runoff coming down from the Achrafieh side before it reaches those streets. Second, the corridor follows a natural drainage axis, which is why it works: it is already where the water wants to go.\n\nIf asked about the large square feature near the top left: that is a real deep excavation on a construction site, which the LiDAR surveyed and which we model as a basin. It is genuine terrain, not an artefact."
+    "say": "The observed storm, before and after, difference on the right. Blue is drier.",
+    "numbers": [
+      "Effect extends beyond the ribbon into surrounding streets",
+      "The corridor follows a natural drainage axis - it is already where the water wants to go"
+    ],
+    "asked": [
+      [
+        "What is the large square top-left?",
+        "A real deep excavation on a construction site, surveyed by the LiDAR and modelled as a basin. Genuine terrain, not an artefact."
+      ]
+    ]
   },
   {
     "title": "Results",
-    "notes": "These are the headline numbers, measured on the corridor's walkable surface.\n\nIn a frequent storm the corridor removes well over half the flooding from the surfaces people actually walk on. In the observed November event, about half. In a 50-year storm, essentially nothing \u2014 and that deserves explanation rather than burial, which is the next slide.\n\nThe metric matters. About a fifth of the corridor is deliberately dug out as bioswales, rain gardens and terraces. Those hold water on purpose. Counting a full bioretention pond as 'flooding' penalises the design for working, so the headline figure excludes them. Those cells are 20 % of the corridor but 34 % of its wet area, which is why the two ways of measuring diverge.\n\nThe bar chart shows the benefit by distance from the corridor. It reaches roughly two blocks \u2014 about 25-50 m \u2014 before fading, which is a useful planning number: this is a linear intervention with a local catchment, not a city-wide fix."
+    "say": "Over half the flooding removed underfoot in a frequent storm, about half in the observed event, essentially nothing in a 50-year storm - which is the next slide.",
+    "numbers": [
+      "Benefit reaches roughly two blocks, then fades",
+      "Metric excludes the fifth of the corridor dug out to hold water",
+      "Those cells are 20% of the ribbon but 34% of its wet area"
+    ],
+    "asked": [
+      [
+        "Why exclude the ponds?",
+        "Counting a full bioretention pond as flooding penalises the design for working. The published study drew the same distinction."
+      ]
+    ]
   },
   {
     "title": "The severe storm, and a correction",
-    "notes": "This is the most interesting result and the one most likely to be challenged.\n\nIn a 50-year storm the corridor stops reducing the flooded area on its own footprint. But it is still doing hydrological work: it absorbs over two thousand cubic metres more water than the same ground did before, and cuts the volume heading for the port by about a tenth. Its swales and ponds fill and hold. The water is on the corridor by design instead of running down the surrounding streets.\n\nSo the corridor has two different jobs \u2014 keeping its own surface usable, and protecting what is downstream \u2014 and only the second survives an extreme event. That is a more useful message for a planner than a single percentage.\n\nThe correction on this slide should be stated plainly rather than left for someone to find. The earlier version of this study credited the corridor with roughly tripling infiltration. With a proper wetting-front infiltration model (Green-Ampt) the multiple is about 1.3. The absolute volume gain holds up \u2014 around 900 cubic metres in the observed storm, inside the previously published range \u2014 but ordinary Beirut ground turns out to absorb far more than the earlier constant-rate model implied, so the corridor's relative contribution is smaller. Better physics, smaller claim."
+    "say": "In a 50-year storm the corridor stops keeping itself dry and starts protecting everywhere else. Two different jobs; only the second survives an extreme event.",
+    "numbers": [
+      "T50: area barely moves, but +2,124 m3 absorbed and outflow cut 11%",
+      "Infiltration multiple is 1.3x, NOT the 3x previously claimed",
+      "Absolute gain (~900 m3 observed storm) holds up"
+    ],
+    "asked": [
+      [
+        "Why did the infiltration claim shrink?",
+        "Better soil physics. Ordinary Beirut ground absorbs far more than a constant rate implied, so the corridor's relative contribution is smaller. Better physics, smaller claim - say it plainly."
+      ]
+    ]
   },
   {
     "title": "What would make this a validated model \u2014 the ask",
-    "notes": "This is the slide to deliver carefully, because it is both the honest caveat and the request.\n\nMake the distinction clearly first: the model is VERIFIED \u2014 it solves the equations correctly, reproduces analytic solutions, passes two international benchmarks and agrees with an independently written solver to 3.7 cm. What it is not is VALIDATED, because every one of those comparisons is against another model. We have observed rainfall for 25 November 2025, but no measured flood depths, extents or timings anywhere in the study area.\n\nThen make the ask, positively rather than apologetically. This gap cannot be closed by better modelling, more computing time or another benchmark. It can only be closed by measurement, and the measurement needed is genuinely modest: after the next significant storm, photographs and levelled water marks at a few dozen street locations, ideally within a day or two while the marks are still legible. A handful of inexpensive depth loggers at known ponding points would add timing. None of this requires specialist equipment or a large team.\n\nBe explicit about the value: with that data the study reports a measured error against reality rather than an agreement with other models, and its results can carry planning decisions with real confidence. Without it, everything here remains a well-built and well-tested hypothesis.\n\nOffer to help design the campaign \u2014 where to place loggers, which streets matter most \u2014 since the model already predicts where flooding concentrates and can be used to site the measurements efficiently. That turns the request into a collaboration rather than a favour.\n\nIf asked whether the current numbers are usable meanwhile: yes, with care. The study reports differences \u2014 before versus after \u2014 and a systematic bias affects both scenarios and largely cancels. Absolute depths carry more uncertainty than the comparisons do."
+    "say": "Verified, not validated. It solves the equations correctly and agrees with an independent solver to 3.7 cm - but every comparison is against another model, never a measured flood in Beirut.",
+    "numbers": [
+      "Needed: water marks at a few dozen streets after the next big storm",
+      "Plus a handful of low-cost depth loggers, and timing",
+      "No specialist equipment, no large team"
+    ],
+    "asked": [
+      [
+        "Can we use the numbers meanwhile?",
+        "Yes, with care. The study reports differences, and a systematic bias affects both scenarios and largely cancels. Absolutes carry more uncertainty."
+      ],
+      [
+        "How can we help?",
+        "OFFER THIS. The model already predicts where flooding concentrates, so we can site the loggers and surveys efficiently. Makes it a collaboration, not a favour."
+      ]
+    ]
   },
   {
     "title": "Close",
-    "notes": "Thank you / questions."
+    "say": "Thank you / questions.",
+    "numbers": [],
+    "asked": []
   }
 ]
