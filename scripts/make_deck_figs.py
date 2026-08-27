@@ -67,47 +67,124 @@ TEAL_T = "#156082"
 
 
 def figs_equations(out):
-    eq_card(f"{out}/eq_swe.png", "What is solved: 2-D shallow-water equations", [
-        (r"$\partial_t h + \partial_x(hu) + \partial_y(hv) = R - I - D$",
-         "mass: rain, infiltration, drains"),
-        (r"$\partial_t(hu) + \partial_x\left(hu^2 + \frac{1}{2}gh^2\right)"
-         r" + \partial_y(huv) = -gh \partial_x z_b - \tau_x$", "x-momentum"),
-        (r"$\partial_t(hv) + \partial_x(huv) + \partial_y\left(hv^2 + "
-         r"\frac{1}{2}gh^2\right) = -gh \partial_y z_b - \tau_y$", "y-momentum"),
-        (r"$\tau = g n^2 |\mathbf{u}| \mathbf{u} / h^{1/3}$",
-         "Manning bed friction"),
-    ], w=7.6)
+    """Equation cards.
 
-    eq_card(f"{out}/eq_numerics.png", "How it is discretised", [
+    The annotation on the right of each line says what the term *does*, not
+    what it is called. The audience for these slides builds software and
+    understands maths; it does not read the hydraulics literature, so a name
+    like "Audusse reconstruction" tells them nothing and "keeps still water
+    still over a stepped bed" tells them everything."""
+    eq_card(f"{out}/eq_swe.png", "The physics: three quantities per cell", [
+        (r"$\partial_t h + \partial_x(hu) + \partial_y(hv) = R - I - D$",
+         "depth changes by flow in/out, plus rain,\nminus what soaks in and what drains take"),
+        (r"$\partial_t(hu) + \partial_x\left(hu^2 + \frac{1}{2}gh^2\right)"
+         r" + \partial_y(huv) = -gh \partial_x z_b - \tau_x$",
+         "east-west momentum: pushed by its own\npressure and by the downhill slope, held\nback by friction"),
+        (r"$\partial_t(hv) + \partial_x(huv) + \partial_y\left(hv^2 + "
+         r"\frac{1}{2}gh^2\right) = -gh \partial_y z_b - \tau_y$",
+         "the same, north-south"),
+        (r"$\tau = g n^2 |\mathbf{u}| \mathbf{u} / h^{1/3}$",
+         "friction. $n$ is Manning's roughness —\nthe one number per surface type"),
+    ], w=8.4, lh=0.86, size=14)
+
+    eq_card(f"{out}/eq_numerics.png", "How it is computed: a loop over cells", [
         (r"$U_i^{n+1} = U_i^{n} - \frac{\Delta t}{\Delta x}"
          r"\left(F_{i+\frac{1}{2}} - F_{i-\frac{1}{2}}\right) + \Delta t S_i$",
-         "finite volume, cell-centred"),
+         "new state = old state − (what left − what\narrived) + rain, infiltration, drains"),
         (r"$F^{hllc} = \frac{S_R F_L - S_L F_R + S_L S_R (U_R - U_L)}{S_R - S_L}$",
-         "HLLC approximate Riemann flux"),
-        (r"$S_L = \min\left(u_L - \sqrt{gh_L},\; u_* - \sqrt{gh_*}\right)$",
-         "Toro two-rarefaction wave speeds"),
-        (r"$\tilde h_{L} = \max\left(0,\; h_L + z_L - \max(z_L, z_R)\right)$",
-         "Audusse reconstruction: well-balanced"),
-        (r"$\Delta t \leq 0.4 \Delta x  /  \max\left(|u| + \sqrt{gh}\right)$",
-         "CFL condition"),
-    ], w=7.6)
+         "flow across one face, worked out from the\ncells either side — handles a sharp front\nwithout smearing it"),
+        (r"$S_L, S_R \sim u \pm \sqrt{gh}$",
+         "how fast a disturbance travels. Sets both\nthe flux above and the timestep below"),
+        (r"$\tilde h_{L} = \max\left(0, h_L + z_L - \max(z_L, z_R)\right)$",
+         "measure depth from the higher of the two\nbeds, so still water stays still over a step"),
+        (r"$\Delta t \leq 0.4 \Delta x / \max\left(|u| + \sqrt{gh}\right)$",
+         "timestep short enough that water cannot\ncross a cell in one step, or it goes unstable"),
+    ], w=8.4, lh=0.92, size=14)
 
-    eq_card(f"{out}/eq_infil.png", "Infiltration: Green–Ampt wetting front", [
+    eq_card(f"{out}/eq_infil.png", "Infiltration: the ground fills up", [
         (r"$f(t) = K\left(1 + \frac{\psi \Delta\theta}{F(t)}\right)$",
-         "capacity falls as the ground wets"),
+         "soak-up rate. $K$ is the steady rate; the\nsecond term is the extra suction of dry soil,\nand it shrinks as total soaked-in $F$ grows"),
         (r"$F - F_n - \psi\Delta\theta \ln\frac{F + \psi\Delta\theta}"
          r"{F_n + \psi\Delta\theta} = K \Delta t$",
-         "cumulative form, solved implicitly"),
-        (r"$F^{(k+1)} = F^{(k)} - g\left(F^{(k)}\right) / "
-         r"g'\left(F^{(k)}\right)$", "4 Newton iterations per step"),
-    ], w=7.0)
+         "the same law as a total rather than a rate.\nThis is what we actually step forward"),
+        (r"$F^{(k+1)} = F^{(k)} - g(F^{(k)}) / g'(F^{(k)})$",
+         "you cannot rearrange that for $F$, so:\nNewton's method, 4 iterations, every cell,\nevery step"),
+    ], w=8.4, lh=0.94, size=14)
 
-    eq_card(f"{out}/eq_drain.png", "Gully inlets: head-dependent capture", [
-        (r"$Q_{weir} = C_w P h^{3/2}$", r"free-flowing grate, $C_w=1.66$"),
-        (r"$Q_{orifice} = C_o A \sqrt{2gh}$", r"drowned grate, $C_o=0.6$"),
-        (r"$Q = \min\left(Q_{weir},\; Q_{orifice},\; h \Delta x^2/\Delta t\right)$",
-         "whichever controls, never more than is there"),
-    ], w=7.0)
+    eq_card(f"{out}/eq_drain.png", "Gullies: how much a grate can swallow", [
+        (r"$Q_{weir} = C_w P h^{3/2}$",
+         "shallow water spilling over the grate edge.\n$P$ is the perimeter"),
+        (r"$Q_{orifice} = C_o A \sqrt{2gh}$",
+         "deep water squeezing through the opening.\n$A$ is the hole"),
+        (r"$Q = \min\left(Q_{weir}, Q_{orifice}, h \Delta x^2/\Delta t\right)$",
+         "whichever is the bottleneck — and never\nmore water than the cell actually has"),
+    ], w=8.4, lh=0.94, size=14)
+
+
+def fig_compute_loop(out):
+    """What one timestep actually does, for people who write code."""
+    fig, ax = plt.subplots(figsize=(11.6, 4.5))
+    ax.set_xlim(0, 116); ax.set_ylim(0, 45); ax.axis("off"); ax.grid(False)
+
+    def box(x, y, w, h, fc, ec, lw=1.4):
+        ax.add_patch(FancyBboxPatch((x, y), w, h,
+                                    boxstyle="round,pad=0,rounding_size=1.8",
+                                    fc=fc, ec=ec, lw=lw, zorder=2))
+
+    def arrow(x0, y0, x1, y1, col=C_ACCENT, rad=0.0):
+        ax.add_patch(FancyArrowPatch((x0, y0), (x1, y1), arrowstyle="-|>",
+                                     mutation_scale=15, lw=1.6, color=col,
+                                     connectionstyle=f"arc3,rad={rad}", zorder=3))
+
+    # --- the cell stencil -------------------------------------------------
+    cx, cy, sz = 12, 16, 8.5
+    for dx, dy, fc in ((0, 0, "#CFE9EC"), (-1, 0, "white"), (1, 0, "white"),
+                       (0, 1, "white"), (0, -1, "white")):
+        box(cx + dx * sz, cy + dy * sz, sz, sz, fc, "#9FB3B8", lw=1.0)
+    ax.text(cx + sz / 2, cy + sz / 2, "$h$\n$hu, hv$", fontsize=10, color=NAVY,
+            ha="center", va="center", linespacing=1.5)
+    for dx, dy in ((-1, 0), (1, 0), (0, 1), (0, -1)):
+        x0 = cx + sz / 2 + dx * sz * 0.42
+        y0 = cy + sz / 2 + dy * sz * 0.42
+        arrow(x0 + dx * sz * 0.26, y0 + dy * sz * 0.26, x0, y0, C_AFTER)
+    ax.text(cx + sz / 2, cy - sz - 3.2,
+            "Each cell holds three numbers.\nEach step, compute the flow across\nits four faces.",
+            fontsize=9.5, color=NAVY, ha="center", va="top", linespacing=1.6)
+    ax.text(cx + sz / 2, 43, "ONE CELL", fontsize=10, color=C_ACCENT,
+            weight="bold", ha="center")
+
+    # --- the step ---------------------------------------------------------
+    steps = [("1.  Face fluxes", "how much water and momentum crosses each\nface, from the two cells either side"),
+             ("2.  Update the cell", "add what arrived, subtract what left"),
+             ("3.  Sources", "add rain; subtract infiltration (Newton solve)\nand whatever the gully swallows"),
+             ("4.  Pick the next $\\Delta t$", "short enough that nothing crosses a whole cell")]
+    for i, (t, sub) in enumerate(steps):
+        y = 34 - i * 8.6
+        box(40, y, 43, 7.2, "white", C_ACCENT)
+        ax.text(42, y + 4.9, t, fontsize=10.5, color=NAVY, weight="bold",
+                va="center")
+        ax.text(42, y + 2.1, sub, fontsize=8.4, color=GREY, va="center",
+                linespacing=1.35)
+        if i < 3:
+            arrow(61.5, y, 61.5, y - 1.4)
+    ax.text(61.5, 43, "ONE TIMESTEP", fontsize=10, color=C_ACCENT,
+            weight="bold", ha="center")
+    ax.add_patch(FancyArrowPatch((84.5, 7.0), (84.5, 37.0), arrowstyle="-|>",
+                                 mutation_scale=15, lw=1.6, color=C_AFTER,
+                                 connectionstyle="arc3,rad=0.55", zorder=3))
+    ax.text(93.5, 22, "repeat", fontsize=10, color=C_AFTER, weight="bold",
+            ha="center")
+
+    box(98, 12, 18, 20, PAPER, NAVY)
+    ax.text(107, 29, "PER RUN", fontsize=9.5, color=NAVY, weight="bold",
+            ha="center")
+    ax.text(107, 21.5,
+            "2.3 M cells\n~75,000 steps\n1 hour of storm\n\n"
+            "all of it as tensor\nops on the GPU",
+            fontsize=9.2, color=NAVY, ha="center", va="center", linespacing=1.6)
+    fig.tight_layout(pad=0.2)
+    fig.savefig(f"{out}/tech_loop.png", dpi=150)
+    plt.close(fig)
 
 
 # ------------------------------------------------------------- verification --
@@ -121,11 +198,11 @@ def fig_dambreak(out, path="output/verification/dambreak.json"):
                            gridspec_kw=dict(width_ratios=[1.45, 1]))
 
     ax[0].fill_between(x, 0, ex, color=NAVY, alpha=0.10, lw=0)
-    ax[0].plot(x, ex, color=NAVY, lw=2.0, label="exact (Ritter)")
+    ax[0].plot(x, ex, color=NAVY, lw=2.0, label="the exact answer")
     ax[0].plot(x, np.array(d["schemes"]["hllc"]["h"]), color=C_AFTER, lw=1.5,
-               label="shock-capturing (HLLC)")
+               label="the full method")
     ax[0].plot(x, np.array(d["schemes"]["inertial"]["h"]), color=C_BEFORE,
-               lw=1.5, ls="--", label="inertial (3-term)")
+               lw=1.5, ls="--", label="the cheap method")
     ax[0].set_xlabel("distance from the dam (m)")
     ax[0].set_ylabel("water depth (m)")
     ax[0].set_title(f"Dry-bed dam break, {d['t_end']:.0f} s after release "
@@ -135,8 +212,8 @@ def fig_dambreak(out, path="output/verification/dambreak.json"):
 
     rows = sorted(d["convergence"], key=lambda r: -r["res_m"])
     r = [q["res_m"] for q in rows]
-    for key, lab, col, ls in (("hllc", "HLLC", C_AFTER, "-"),
-                              ("inertial", "inertial", C_BEFORE, "--")):
+    for key, lab, col, ls in (("hllc", "the full method", C_AFTER, "-"),
+                              ("inertial", "the cheap method", C_BEFORE, "--")):
         ax[1].plot(r, [q[key]["rmse_pct_h0"] for q in rows], ls, color=col,
                    marker="o", ms=4, label=lab)
     ax[1].set_xscale("log"); ax[1].set_xticks(r)
@@ -145,7 +222,7 @@ def fig_dambreak(out, path="output/verification/dambreak.json"):
     ax[1].invert_xaxis()
     ax[1].set_xlabel("grid resolution (m)  →  finer")
     ax[1].set_ylabel("depth error, % of initial depth")
-    ax[1].set_title("One scheme converges. The other does not.")
+    ax[1].set_title("Halve the grid, halve the error — for one of them")
     ax[1].legend(frameon=False, fontsize=8.5)
     ax[1].set_ylim(0, None)
     fig.tight_layout()
@@ -616,6 +693,7 @@ def main():
 
     jobs = {
         "equations": lambda: figs_equations(a.out),
+        "loop": lambda: fig_compute_loop(a.out),
         "dambreak": lambda: fig_dambreak(a.out),
         "greenampt": lambda: fig_greenampt(a.out),
         "gully": lambda: fig_gully(a.out),

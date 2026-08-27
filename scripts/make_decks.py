@@ -88,8 +88,8 @@ def two_image(prs, title, left, right, cap_left=None, cap_right=None,
     title_of(s, title)
     drop_ph(s, 1); drop_ph(s, 10)
     if stacked:
-        fit(prs, s, left, (3.4, 1.10, 6.5, 1.95))
-        fit(prs, s, right, (0.35, 3.20, 12.6, 3.05))
+        fit(prs, s, left, (1.55, 1.02, 10.2, 2.35))
+        fit(prs, s, right, (0.60, 3.55, 12.1, 2.80))
     else:
         fit(prs, s, left, (0.45, 1.15, 6.15, 4.30))
         fit(prs, s, right, (6.75, 1.15, 6.15, 4.30))
@@ -107,305 +107,376 @@ def chapter(prs, title):
 
 # =========================================================== technical deck ==
 def build_technical(prs, F, n, out):
+    """Pitched at an engineer or a software developer, not a hydraulics
+    specialist: the equations stay, the literature names go, and every term is
+    said in terms of what it does."""
     s = prs.slides.add_slide(prs.slide_layouts[L_INTRO])
-    title_of(s, "A differentiable flood model")
+    title_of(s, "How the flood model works")
     tb = s.shapes.add_textbox(Inches(0.92), Inches(4.62), Inches(7.6), Inches(1.2))
-    set_text(tb, ["Rain-on-grid shallow water at 0.5 m, with infiltration, "
-                  "detention and head-dependent drainage",
-                  "Formulation · verification · benchmarks · Beirut"],
-             size=13.5, color=WHITE)
-    notes(s, "A 2-D shallow-water code built for one question: does a green "
-             "corridor reduce street flooding, and by how much. Three claims "
-             "today — it solves the equations correctly, it agrees with codes "
-             "that were written independently, and it can differentiate itself.")
+    set_text(tb, ["A physics simulation of rain running through a city, at "
+                  "half-metre resolution",
+                  "What it computes · how it is tested · what it says about the "
+                  "Beirut green corridor"], size=13.5, color=WHITE)
+    notes(s, "No hydraulics background assumed. Three questions: what does it "
+             "actually compute, how do we know it is right, and what did it "
+             "tell us. Stop me on any of the maths — none of it is deep, it is "
+             "just unfamiliar.")
 
-    chapter(prs, "FORMULATION")
-
-    text_img(prs, "Governing equations and source terms", [
-        [("Depth-averaged conservation of mass and momentum", True), ("", False)],
-        "Rain R applied to every cell; infiltration I and inlet capture D are "
-        "per-cell sinks — this is what makes it a pluvial model rather than a "
-        "routed one",
-        "Bed slope treated as a source term, friction by Manning",
+    s = prs.slides.add_slide(prs.slide_layouts[L_TWO_TEXT])
+    title_of(s, "The idea in one paragraph")
+    body(s, 1, [
+        [("Cut the city into half-metre squares. Put rain on all of them. "
+          "Let physics move the water.", True), ("", False)],
         "",
-        [("Domain:", True), ("  2,001 × 1,142 cells at 0.5 m = 2.3 M cells, "
-                             "GPU, float32", False)],
-        [("Wetting and drying:", True),
-         ("  Kurganov–Petrova velocity desingularisation; a flux limiter "
-          "rescales each cell's outflux so it never exports more than it holds",
+        "2.3 million squares, each holding three numbers: how deep the water "
+        "is, and how fast it is moving in x and y.",
+        "",
+        "Every timestep, work out how much water crosses between neighbouring "
+        "squares, add the rain, subtract what soaks into the ground and what "
+        "the drains take, and repeat — about 75,000 times for one hour of "
+        "storm.",
+        "",
+        "It runs on a GPU because every square updates independently, which is "
+        "exactly what a GPU is for.",
+    ], size=13.5)
+    body(s, 2, [
+        [("Why this rather than a drainage model", True), ("", False)],
+        "",
+        "The usual approach divides the city into catchments, guesses what "
+        "fraction of rain runs off each, and routes the result through a pipe "
+        "network you have drawn.",
+        "",
+        [("That requires you to decide in advance where the water goes.",
+          True), ("", False)],
+        "",
+        "Here nothing is routed by hand. Where the flooding shows up is an "
+        "output. That is the property that lets the model say something "
+        "useful about a design that has never been built.",
+    ], size=13.5)
+    notes(s, "This slide is the whole talk in miniature. If someone takes only "
+             "one thing, it should be that the flood pattern is computed, not "
+             "assumed.")
+
+    chapter(prs, "WHAT IT COMPUTES")
+
+    img_slide(prs, f"{F}/tech_loop.png", "The main loop",
+              "Nothing exotic: a stencil over a regular grid, a state update, "
+              "source terms, and a stability-limited timestep. The whole thing "
+              "is tensor operations — there is no per-cell Python anywhere in "
+              "the hot path.",
+              box=(0.35, 1.30, 12.65, 4.45))
+    notes(s := prs.slides[-1],
+          "Deliberately familiar territory for anyone who has written "
+          "numerical code. The only two non-obvious parts are step 1, which "
+          "is the next slide, and step 3's infiltration, which needs an "
+          "iterative solve because the law cannot be rearranged.")
+
+    text_img(prs, "The equations being stepped", [
+        [("Conservation of water and of momentum, averaged over depth", True),
+         ("", False)],
+        "",
+        "The first line is bookkeeping: a square's water level changes by what "
+        "flows in and out, plus rain, minus what soaks in and what the gullies "
+        "take.",
+        "",
+        "The next two are Newton's second law for the water: it accelerates "
+        "under its own pressure and under gravity pulling it downhill, and "
+        "friction with the ground slows it.",
+        "",
+        [("That is the entire physics.", True),
+         ("  Everything else in this talk is about computing it accurately, "
+          "and checking that we did.", False)],
+    ], f"{F}/eq_swe.png", size=13, box=(6.85, 1.55, 6.2, 4.5))
+    notes(prs.slides[-1],
+          "Do not linger. The point is that the physics is short and standard "
+          "— which is exactly why the model can be compared against other "
+          "packages. The interesting engineering is downstream of here.")
+
+    text_img(prs, "Two ways to compute the flow between squares", [
+        [("The cheap way (\"inertial\")", True),
+         ("  drops one term — the momentum the water carries with it as it "
+          "moves. What is left can be solved almost directly. This is what "
+          "most flood models in production use, including LISFLOOD-FP.",
           False)],
-    ], f"{F}/eq_swe.png", size=13, box=(6.95, 1.9, 6.05, 3.6))
-    notes(prs.slides[-1],
-          "Standard SWE, deliberately. That is what lets us benchmark against "
-          "everyone else. The three mass source terms are where this departs "
-          "from a hydraulics-only code. The limiter is mass-conserving — it "
-          "rescales outflux rather than capping velocity, so it does not "
-          "silently suppress supercritical flow the way a depth-gradient clip "
-          "does.")
-
-    text_img(prs, "Two schemes in one code", [
-        [("Inertial (three-term)", True),
-         ("  — Bates, Horritt & Fewtrell (2010). Advective acceleration "
-          "dropped; face discharge updated semi-implicitly against friction. "
-          "The LISFLOOD-FP family.", False)],
         "",
-        [("Shock-capturing (HLLC)", True),
-         ("  — Godunov finite volume, HLLC approximate Riemann solver, Toro "
-          "two-rarefaction wave-speed estimates, Audusse hydrostatic "
-          "reconstruction for well-balancedness over an irregular bed.", False)],
+        [("The full way (\"shock-capturing\")", True),
+         ("  keeps every term and solves a small problem at each face: given "
+          "the water either side, what actually flows across? It costs about "
+          "3.5× more and needs a timestep about half as long.", False)],
         "",
-        [("Cost:", True), ("  HLLC is ≈ 3.5× the inertial scheme, and needs "
-                           "CFL ≤ 0.4 against 0.7 — unsplit 2-D Godunov is "
-                           "unstable at the inertial number.", False)],
-        [("Why it matters:", True), ("  the schemes share terrain, sources and "
-                                     "mass accounting, so scheme error is "
-                                     "measured rather than assumed.", False)],
-    ], f"{F}/eq_numerics.png", size=12, box=(6.95, 1.5, 6.05, 4.6))
+        [("We implemented both, in one code.", True),
+         ("  Same terrain, same rain, same everything else — so the difference "
+          "between two runs is the method and nothing else. Most studies "
+          "cannot measure that, because they only have one solver.", False)],
+    ], f"{F}/eq_numerics.png", size=12.5, box=(6.85, 1.35, 6.2, 4.9))
     notes(prs.slides[-1],
-          "Having both in one code is the unusual part. Every difference "
-          "between the two runs is the scheme and nothing else — same terrain, "
-          "same rain, same infiltration, same accounting. That is what makes "
-          "the attribution slide later possible.")
+          "If asked what the dropped term does: it is the difference between "
+          "water that simply spreads and water that has momentum and keeps "
+          "going. It matters when flow is fast — which in Beirut it is, 6 to "
+          "8 m/s on a 6 % street grade. Next slide shows how much it matters.")
 
     img_slide(prs, f"{F}/tech_dambreak.png",
-              "Verification: dry-bed dam break against Ritter",
-              "Left: 15 s after release on a 0.5 m grid, frictionless, closed "
-              "tank. Right: the same test refined from 2 m to 0.25 m. HLLC "
-              "converges at roughly first order (5.5 → 1.9 % of h₀); the "
-              "inertial scheme plateaus near 14 % and its front is 60 % too "
-              "slow, because the neglected advective term is exactly the "
-              "momentum flux that sets the front celerity.",
+              "The test that separates them: a dam break with a known answer",
+              "Release a wall of water onto dry ground. This problem has an "
+              "exact solution you can write down on paper, so there is no "
+              "argument about what the right answer is. Left: both methods "
+              "against it. Right: the same test on progressively finer grids.",
               box=BOX_FULL_TALL)
     notes(prs.slides[-1],
-          "The cleanest separation we have. Note the inertial scheme does not "
-          "just lose accuracy — it converges to the wrong answer, and it "
-          "oscillates. This is the mechanism behind its +27 % wet-area bias on "
-          "Beirut: streets there run supercritical at 6–8 m/s on a 6 % grade, "
-          "which is a dam break in slow motion.")
+          "The single most useful slide for a sceptical engineer. Three things "
+          "to point at. One: the full method sits on the exact curve. Two: the "
+          "cheap method oscillates and its front is 60 % too slow — it does "
+          "not just lose accuracy, it converges to the wrong answer, which is "
+          "the thing you always want to catch. Three: the right panel is a "
+          "convergence test — halve the grid, error should fall. It does for "
+          "one method and flatlines for the other. This is why we pay 3.5× for "
+          "the full solver.")
 
-    s = two_image(prs, "Infiltration: a wetting front, solved implicitly",
-                  f"{F}/eq_infil.png", f"{F}/tech_greenampt.png",
-                  stacked=True)
-    notes(s, "Green–Ampt rather than a constant rate. Two reasons: capacity "
-             "declines as the ground wets, which a fixed rate cannot express, "
-             "and it is what dropped the corridor's infiltration multiple from "
-             "3× to 1.3×. The explicit rate is unbounded at F = 0, so the "
-             "cumulative form is solved implicitly — four Newton iterations "
-             "per cell per step. Impervious cells have ψΔθ = 0, which is a "
-             "0/0 in the log; they are branched around, not regularised.")
+    s = two_image(prs, "Where the water goes when it is not on the street",
+                  f"{F}/eq_infil.png", f"{F}/tech_greenampt.png", stacked=True)
+    notes(s, "The green corridor works by soaking water up, so this term is "
+             "not a detail — it is the mechanism under test. A constant "
+             "soak-up rate is wrong in a way that matters: ground absorbs "
+             "fast when dry and slows as it fills, like a sponge. Left panel "
+             "shows that decay; the dotted lines are the constant rate a "
+             "simpler model would have used throughout. Right panel is the "
+             "verification — our solver against the exact answer. Switching to "
+             "this is what dropped the corridor's claimed infiltration gain "
+             "from 3× to 1.3×.")
 
     s = prs.slides.add_slide(prs.slide_layouts[L_TEXT_IMG])
-    title_of(s, "Gully inlets that respond to the head over them")
+    title_of(s, "Storm drains that fill up")
     body(s, 1, [
-        "Weir control while the grate is free-flowing, orifice control once "
-        "drowned; capture is the smaller of the two, and never more water than "
-        "the cell holds",
-        "A 0.6 × 0.3 m grate: perimeter 1.8 m, clear opening 0.09 m² after bars "
-        "and blockage",
+        "A gully grate has two regimes. Shallow water spills over its edge; "
+        "deep water is forced through the opening. Which one limits the flow "
+        "depends on how much water is standing on top of it.",
         "",
-        [("Why not a fixed capacity:", True),
-         ("  capture then depends on the ponding the design actually produces, "
-          "so an intervention that reduces ponding is correctly credited with "
-          "reducing inlet capture too.", False)],
+        [("Why not just give each drain a fixed capacity:", True),
+         ("  because then a design that reduces ponding gets no penalty for "
+          "also reducing what the drains capture. Making capture depend on "
+          "depth closes that loop, so the corridor is not credited twice.",
+          False)],
         "",
-        [("Not calibrated.", True), ("  No per-inlet data exists for Beirut. "
-                                     "Results are reported as differences, "
-                                     "which are robust to a common bias.",
-                                     False)],
+        [("Honest caveat:", True), ("  nobody has data on Beirut's actual "
+                                    "inlets. We report differences rather "
+                                    "than absolutes, which is robust to "
+                                    "getting this uniformly wrong.", False)],
     ], size=13)
     drop_ph(s, 10)
-    fit(prs, s, f"{F}/eq_drain.png", (6.95, 1.35, 6.05, 1.9))
-    fit(prs, s, f"{F}/tech_gully.png", (7.25, 3.35, 5.5, 3.0))
-    notes(s, "Small piece of physics, but it closes a feedback loop the "
-             "capacity model breaks: less ponding means less capture, so the "
-             "corridor is not double-counted.")
+    fit(prs, s, f"{F}/eq_drain.png", (6.72, 1.22, 6.35, 2.05))
+    fit(prs, s, f"{F}/tech_gully.png", (7.35, 3.45, 5.3, 2.85))
+    notes(s, "Small piece of physics, but a good example of the general "
+             "principle: model the mechanism, not the outcome, and the "
+             "feedbacks come for free.")
 
-    chapter(prs, "VERIFICATION AND VALIDATION")
+    chapter(prs, "HOW WE KNOW IT IS RIGHT")
 
     s = prs.slides.add_slide(prs.slide_layouts[L_TEXT_IMG])
-    title_of(s, "Analytic tests and the mass audit")
+    title_of(s, "A test suite, and an assertion on every run")
     body(s, 1, [
-        [("Five analytic tests, both schemes, all passing", True), ("", False)],
-        "Closed box — volume conservation, no leakage:  exact",
-        "Planar runoff — steady depth vs Manning normal depth:  14.1 vs 14.7 mm",
-        "Lake at rest — well-balancedness over an uneven bed:  6 × 10⁻⁵ m/s",
-        "Reference-port equivalence — independent implementation:  0.027 mm",
-        "Erosion sanity — bit-identical when disabled, closes when on",
+        [("Five problems with answers known in advance", True), ("", False)],
+        "Sealed box — put rain in, check nothing leaks out:  exact",
+        "Water running down a slope — check the steady depth matches the "
+        "textbook formula:  14.1 vs 14.7 mm",
+        "A still pond on bumpy ground — check the model does not invent "
+        "currents:  6 × 10⁻⁵ m/s",
+        "Same problem through an independent implementation:  agrees to "
+        "0.027 mm",
+        "Erosion off — check the code path is bit-identical to before it "
+        "existed",
         "",
-        [("Every production run carries its own audit:", True),
-         ("  rain = infiltrated + drained + outflow + stored, closing to "
-          "better than 3 × 10⁻⁵.", False)],
-    ], size=12.5)
+        [("And an invariant checked on every production run:", True),
+         ("  rain in = soaked up + drained + flowed out + still standing. "
+          "It closes to better than 3 parts in 100,000, every time.", False)],
+    ], size=12)
     drop_ph(s, 10)
     fit(prs, s, f"{F}/tech_massbalance.png", (6.95, 1.9, 6.05, 3.8))
-    notes(s, "Lake at rest is the one to mention if pressed — it is the test "
-             "many schemes fail, and this domain is terraced with retaining "
-             "walls, so a non-well-balanced scheme would generate currents out "
-             "of nothing. On the right: LISFLOOD-FP failed exactly this audit "
-             "on the same terrain, at Vol/Input = 5.95.")
+    notes(s, "Frame this as unit tests plus a runtime assertion, because that "
+             "is what it is. The still-pond test is the one worth calling out: "
+             "many methods fail it, and this terrain is full of retaining "
+             "walls, so a model that fails it would generate flow out of "
+             "nothing. On the right — one of the three engines we compared "
+             "against failed exactly this mass check on this terrain, at six "
+             "times the input volume.")
 
-    text_img(prs, "Against an independently written solver", [
-        [("SynxFlow", True), ("  — a separate full shallow-water Godunov code, "
-                              "same 0.5 m grid, same storm, same terrain", False)],
+    text_img(prs, "Run against a solver somebody else wrote", [
+        [("SynxFlow — a separate flood simulator, different team, different "
+          "code, same job", True), ("", False)],
+        "Same terrain, same grid, same storm. Then compare the depth in every "
+        "cell.",
         "",
-        [("HLLC:", True), ("   IoU 0.913 · correlation 0.985 · RMSE 3.7 cm · "
-                           "wet-area bias +1 %", False)],
-        [("Inertial:", True), ("   IoU 0.690 · correlation 0.938 · RMSE 7.8 cm · "
-                               "wet-area bias +27 %", False)],
+        [("Our full method:", True), ("   agrees on 91 % of the flooded "
+                                      "footprint, 3.7 cm typical difference",
+                                      False)],
+        [("Our cheap method:", True), ("   69 % overlap, 7.8 cm, and it "
+                                       "spreads water over 27 % more area — "
+                                       "the same bias the dam break predicted",
+                                       False)],
         "",
-        [("LISFLOOD-FP: unusable on this terrain.", True),
-         ("  Generated 5.95× the input volume and failed its own mass balance "
-          "— a documented limitation of its scheme where retaining walls step "
-          "the bed. The raster is void, not merely different.", False)],
-    ], f"{F}/validation_synxflow.png", size=13)
+        [("A third engine, LISFLOOD-FP, could not be used at all:", True),
+         ("  it produced six times the water that went in and failed its own "
+          "conservation check on this terrain. Its output is void, not merely "
+          "different.", False)],
+    ], f"{F}/validation_synxflow.png", size=12.5)
     notes(prs.slides[-1],
-          "The strongest evidence available without field data. Two "
-          "independently written Godunov schemes agreeing to 3.7 cm across a "
-          "full urban catchment. Note this also quantifies the inertial "
-          "scheme's bias on the real problem, and it is the same sign and "
-          "cause as the dam-break result.")
+          "This is the strongest evidence available short of measuring a real "
+          "flood. Two codes written independently, agreeing to under 4 cm "
+          "across a whole catchment. Note it also confirms the dam-break "
+          "finding on the real problem — same sign, same cause.")
 
-    s = two_image(prs, "UK EA benchmark suite (SC120002): Tests 8A and 4",
+    s = two_image(prs, "Two standard benchmark cases used to compare flood models",
                   f"{F}/benchmark_ea8.png", f"{F}/benchmark_ea4.png",
-                  cap_left="Test 8A — rainfall on a dense urban street network. "
-                           "In cluster at all four gauges with published "
-                           "curves: P1 0.579 · P2 0.239 · P3 0.726 · P6 0.064 m.",
-                  cap_right="Test 4 — flood propagation over a floodplain. In "
-                            "cluster at all nine cross-section points, on both "
-                            "schemes. Built from the written specification.")
-    notes(s, "19 packages in the published comparison. 8A is the closest "
-             "published analogue to what we do — direct rainfall on a real "
-             "street network. Of the remaining six cases, four need terrain "
-             "and boundary data we do not have and two need coupled 1-D sewer "
-             "or river models we do not implement. Test 3 is the one worth "
-             "acquiring: it discriminates shock-capturing schemes.")
+                  cap_left="Rain on a real, dense street network — the closest "
+                           "published case to what we do. Our answer sits "
+                           "inside the range of published results at all four "
+                           "measurement points.",
+                  cap_right="How fast a flood front travels and how deep the "
+                            "water is behind it. Inside the published range at "
+                            "all nine points, on both methods.")
+    notes(s, "The UK Environment Agency publishes a benchmark suite with "
+             "results from 19 commercial and research packages, so 'in "
+             "cluster' means we land where the established tools land. Of the "
+             "other six cases, four need data files we do not have and two "
+             "need a coupled sewer model we have not built.")
 
-    text_img(prs, "Resolution: answering an open question in the EA report", [
-        [("The report leaves it open:", True),
-         ("  “it is not currently clear that grid resolutions finer than 2 m "
-          "will improve the quality of velocity predictions”, and recommends "
-          "it be tested at 0.5 m.", False)],
+    text_img(prs, "Does the half-metre grid earn its cost?", [
+        "Coarsen the same terrain step by step and re-run. Only the grid "
+        "changes — same rain, same everything.",
         "",
-        "Same terrain, block-aggregated — the computational grid is the only "
-        "quantity varying",
+        [("At 0.5 m the corridor removes 9.4 % of the flooding. At 2 m: 0.6 %.",
+          True), ("", False)],
+        "A study done at 2 m would conclude the intervention does essentially "
+        "nothing.",
         "",
-        [("0.5 m: 9.4 % · 1 m: 2.4 % · 2 m: 0.6 % · 4 m: 2.4 %", True),
-         ("   measured corridor benefit", False)],
-        [("p99 street velocity climbs 4.32 → 14.76 m/s as the grid coarsens",
-          True), ("  — the wrong direction, and physically implausible: "
-                  "block-averaging manufactures artificial gradients while "
-                  "erasing the kerbs that convey the water.", False)],
+        [("Peak street velocity goes the wrong way", True),
+         (" — 4.3 up to 14.8 m/s as the grid gets coarser. Averaging blocks "
+          "of cells together erases the kerbs and narrow streets that actually "
+          "carry the water, while inventing steep steps between the big cells "
+          "that remain.", False)],
         "",
-        [("Caveat:", True), ("  coarsening is not the same as building "
-                             "natively at 2 m with recalibrated roughness. "
-                             "Direction and magnitude are unambiguous.", False)],
+        [("Caveat:", True), ("  coarsening an existing model is not identical "
+                             "to building one natively at 2 m with retuned "
+                             "roughness. The size and direction of the effect "
+                             "are not in doubt.", False)],
     ], f"{F}/resolution.png", size=12)
     notes(prs.slides[-1],
-          "A study done at the benchmark's own 2 m would conclude the "
-          "intervention does essentially nothing. For appraising interventions "
-          "at street scale, sub-metre is a precondition, not a refinement.")
+          "Worth stressing that the benchmark report itself lists this as an "
+          "open question and asks somebody to test it at 0.5 m. We are "
+          "unusually well placed to answer it, and the answer is that "
+          "resolution decides the conclusion.")
 
-    chapter(prs, "APPLICATION AND THE DIFFERENTIABLE LAYER")
+    chapter(prs, "BEIRUT, AND WHAT COMES NEXT")
 
-    text_img(prs, "Attribution: which model change moved the answer", [
-        [("Walkable-surface reduction, by configuration", True), ("", False)],
-        f"T2 frequent:   {n['t2']['walk']:.1f} %   "
-        f"(baseline 55.6 → HLLC 52.9 → best {n['t2']['walk']:.1f})",
-        f"25 Nov observed:   {n['v1_nov2025']['walk']:.1f} %   "
-        f"(44.3 → 42.8 → {n['v1_nov2025']['walk']:.1f})",
-        f"T50 severe:   {n['t50']['walk']:.1f} %   "
-        f"(26.4 → −9.0 → {n['t50']['walk']:.1f})",
+    text_img(prs, "Which change to the model moved the answer", [
+        [("Same corridor, same storms, three versions of the model", True),
+         ("", False)],
+        f"Frequent storm:   55.6 → 52.9 → {n['t2']['walk']:.1f} %  reduction "
+        "in flooded walkable area",
+        f"Observed 25 Nov:   44.3 → 42.8 → {n['v1_nov2025']['walk']:.1f} %",
+        f"Severe 50-year:   26.4 → −9.0 → {n['t50']['walk']:.1f} %",
         "",
-        [("The severe-storm sign flip is numerics, not soil physics:", True),
-         ("  shock capturing alone moves it −35.4 points, Green–Ampt returns "
-          "+8.3. The old scheme was over-spreading water in the before-case, "
-          "where flow is fastest and most supercritical, and inflating the "
-          "apparent benefit.", False)],
-    ], f"{F}/tech_attribution.png", size=12.5)
-    notes(prs.slides[-1],
-          "This is the slide that justifies having built the HLLC scheme. "
-          "Without it the headline for a 50-year storm would still read +26 %, "
-          "and it would be wrong.")
-
-    text_img(prs, "Beirut: what the corridor actually does", [
-        [("Water balance, best-validated configuration", True), ("", False)],
-        f"T2:   +{n['t2']['infil']:,.0f} m³ infiltrated · "
-        f"−{n['t2']['out']:.0f} % outflow toward the port",
-        f"25 Nov:   +{n['v1_nov2025']['infil']:,.0f} m³ · "
-        f"−{n['v1_nov2025']['out']:.0f} %",
-        f"T50:   +{n['t50']['infil']:,.0f} m³ · −{n['t50']['out']:.0f} %",
-        "",
-        [("In a 50-year storm the corridor stops reducing its own flooded "
-          "area but keeps doing hydrological work", True),
-         (" — its swales and ponds fill and hold. Two distinct functions; only "
-          "the downstream one survives an extreme event.", False)],
-        "",
-        [("Correction:", True),
-         (f"  the infiltration multiple is {n['v1_nov2025']['infil_x']:.2f}×, "
-          "not the 3× previously claimed. Ordinary Beirut ground absorbs far "
-          "more than a constant rate implied. Better physics, smaller claim.",
+        [("The severe storm is the interesting one.", True),
+         ("  Switching to the accurate flow method alone moved it by 35 "
+          "percentage points — the cheap method had been over-spreading water "
+          "in the do-nothing case, where flow is fastest, and inflating the "
+          "apparent benefit. Better soil physics then gave 8 points back.",
           False)],
+        "",
+        [("This is why we built the second solver.", True),
+         ("  Without it the headline would still read +26 %, and it would be "
+          "wrong.", False)],
+    ], f"{F}/tech_attribution.png", size=12)
+    notes(prs.slides[-1],
+          "A good slide to dwell on with an engineering audience: it is a "
+          "worked example of a numerical artefact masquerading as a physical "
+          "result, caught by having two implementations.")
+
+    text_img(prs, "What the corridor actually does", [
+        [("Water balance, best-validated configuration", True), ("", False)],
+        f"Frequent storm:   +{n['t2']['infil']:,.0f} m³ soaked up · "
+        f"{n['t2']['out']:.0f} % less water sent toward the port",
+        f"Observed 25 Nov:   +{n['v1_nov2025']['infil']:,.0f} m³ · "
+        f"{n['v1_nov2025']['out']:.0f} %",
+        f"Severe 50-year:   +{n['t50']['infil']:,.0f} m³ · "
+        f"{n['t50']['out']:.0f} %",
+        "",
+        [("In a 50-year storm it stops reducing its own flooded area but "
+          "absorbs more than ever.", True),
+         ("  The swales and ponds fill and hold. Two different jobs — keeping "
+          "its own surface usable, and protecting what is downstream — and "
+          "only the second survives an extreme event.", False)],
+        "",
+        [("Correction to the earlier study:", True),
+         (f"  infiltration goes up {n['v1_nov2025']['infil_x']:.2f}×, not the "
+          "3× previously claimed. Ordinary Beirut ground absorbs far more than "
+          "a constant-rate model implied.", False)],
     ], f"{F}/beirut_water_balance.png", size=12)
     notes(prs.slides[-1],
-          "The absolute infiltration gain held up; the ratio did not. Say the "
-          "correction plainly — it is the kind of thing a referee finds.")
+          "Say the correction plainly. The absolute gain held; the ratio did "
+          "not, because the baseline was wrong. Better physics, smaller claim "
+          "— that is how it should go.")
 
     opt = json.load(open("output/design_opt/result.json"))
-    text_img(prs, "The solver differentiates itself", [
-        [("Written in torch, so ∂(flooded area)/∂(design) comes from autograd",
-          True), ("", False)],
-        "Verified against central finite differences to 2 × 10⁻⁸ over an "
-        "epsilon sweep; gradient checkpointing makes full-length storms "
-        "tractable and is bit-identical to the direct backward pass",
-        "SIMP-style continuous relaxation between paved and green endpoints, "
-        "with a density filter and a bisection projection onto an area budget",
+    text_img(prs, "The model can be differentiated", [
+        [("It is written in PyTorch, so autograd works through the whole "
+          "simulation.", True), ("", False)],
+        "Backpropagate through 75,000 timesteps and you get the derivative of "
+        "flooded area with respect to every cell of the design — the same "
+        "machinery that trains a neural network, applied to a physics solver.",
         "",
-        [(f"Result at equal budget ({opt['budget_frac']:.0%} of the patch):",
-          True), ("", False)],
+        "Checked against finite differences to 2 × 10⁻⁸. Gradient "
+        "checkpointing trades compute for memory so full storms fit.",
+        "",
+        [("So you can optimise a design instead of guessing at a few:", True),
+         ("", False)],
         [(f"do nothing {opt['flooded_m2']['do_nothing']:.0f} m²  ·  "
           f"spread evenly {opt['flooded_m2']['uniform']:.0f}  ·  "
           f"greedy {opt['flooded_m2']['greedy']:.0f}  ·  ", False),
-         (f"gradient {opt['flooded_m2']['gradient']:.0f} m²", True)],
+         (f"gradient descent {opt['flooded_m2']['gradient']:.0f} m²", True)],
         "",
-        [("Not yet a claim.", True),
-         ("  Thresholded to a buildable binary layout the optimum degrades to "
-          "159 m² against greedy's 149 — the relaxation needs a Heaviside "
-          "projection with continuation before this stands up.", False)],
-    ], f"{F}/tech_optimizer.png", size=12)
+        [("Not a finished claim.", True),
+         ("  Forced to a buildable yes/no layout the advantage disappears. "
+          "The relaxation needs more work before this stands up.", False)],
+    ], f"{F}/tech_optimizer.png", size=11.5)
     notes(prs.slides[-1],
-          "The differentiator for a publication. None of the 19 packages in "
-          "the EA comparison is differentiable, and none models infiltration "
-          "or green infrastructure at all. Be honest about the binary gap — "
-          "the continuous result is real, the buildable one is not there yet. "
-          "The objective is also still instantaneous; peak-over-time and a "
-          "cost on gullies are the next two changes.")
+          "The part with publication potential. None of the 19 benchmark "
+          "packages is differentiable, and none models infiltration or green "
+          "infrastructure at all — they are hydraulics only. Be straight about "
+          "the gap: the continuous optimum is real, the buildable one is not "
+          "there yet, and the objective is still instantaneous rather than "
+          "peak-over-time.")
 
     s = prs.slides.add_slide(prs.slide_layouts[L_TWO_TEXT])
     title_of(s, "Where it stands, and what is missing")
     body(s, 1, [
-        [("Established", True), ("", False)],
-        "Solves the equations correctly — five analytic tests, both schemes",
-        "Agrees with an independent Godunov code to 3.7 cm / IoU 0.913",
-        "Inside the published cluster on two EA benchmark cases",
-        "Mass closes to 3 × 10⁻⁵ on every run",
-        "Sub-metre resolution demonstrably changes the conclusion",
+        [("Solid", True), ("", False)],
+        "Passes five tests with known answers, on both methods",
+        "Agrees with an independently written solver to 3.7 cm across a whole "
+        "catchment",
+        "Lands inside the published range on two standard benchmark cases",
+        "Conserves water to 3 parts in 100,000 on every run",
+        "Sub-metre resolution demonstrably changes the conclusion — we can "
+        "show it rather than assert it",
         "Gradients verified to 2 × 10⁻⁸",
     ], size=12.5)
     body(s, 2, [
         [("Missing", True), ("", False)],
-        [("No observed flood data for Beirut.", True),
-         ("  Every comparison above is model-to-model. Verified, not "
-          "validated.", False)],
-        "Material properties are literature values, not site measurements; "
-        "Green–Ampt adds four uncalibrated parameters per cover class",
-        "Drain inlet capacity assumed; no per-inlet data exists",
-        "Corridor cross-section interpreted from published drawings",
-        "Erosion sub-model illustrative, and disabled in all results shown",
-        "No coupled 1-D sewer or river model — two EA cases out of scope",
+        [("Nobody has measured a real flood in Beirut.", True),
+         ("  Everything above compares the model to other models or to "
+          "textbook problems. That is real evidence, and it is not the same "
+          "as being right about this city.", False)],
+        "Soil and paving absorption rates come from published tables, not "
+        "site measurements",
+        "Drain inlet capacity assumed — no per-inlet data exists",
+        "The corridor cross-section is our reading of the published drawings",
+        "Erosion model is illustrative, and switched off in everything shown "
+        "here",
+        "No coupled sewer or river model, which puts two benchmark cases out "
+        "of scope",
     ], size=12)
-    notes(s, "Lead with the missing column if the audience is sceptical. The "
-             "honest framing is that the numerics are in good shape and the "
-             "parameterisation is not, and only field measurement fixes the "
+    notes(s, "Lead with the right column if the audience is sceptical. The "
+             "honest summary is that the numerics are in good shape and the "
+             "input parameters are not, and only field measurement fixes the "
              "second.")
 
     s = prs.slides.add_slide(prs.slide_layouts[L_OUTRO])
