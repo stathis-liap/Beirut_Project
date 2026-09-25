@@ -1,0 +1,9 @@
+{
+  "file": "Beirut_drone_40-150m_DSM_5cm_epsg32636.tiff",
+  "status": "salvaged from CRC-corrupt DSM_5cm.zip on 2026-07-17; one damaged LZW strip",
+  "note": "Rows below decoded as garbage (LZW corruption cascades to end of strip 95). Treat these rows as nodata across the FULL width - values in the plausible range there can still be garbage. Rest of raster verified clean against sane-elevation scan (-100..1000 m) and spot-checked against the clean DTM.",
+  "bad_rows_abs": [24480, 24575],
+  "bad_utm_y_band": [3753553, 3753558],
+  "crosses_corridor_dem": true,
+  "action": "mask rows 24480-24575 to NaN before any use; re-request DSM_5cm.zip from AUB for a clean copy"
+}

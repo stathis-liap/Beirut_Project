@@ -17,3 +17,12 @@ venv/
 
 # editor/tool noise
 tempCodeRunnerFile.py
+
+# large survey / CAD source data - multi-GB, kept out of git.
+# obtain separately and drop into these folders; see README.
+/data/
+/3D/**
+# ...but keep the tiny text sidecars that scripts and docs rely on
+!/3D/**/
+!/3D/**/*.tfw
+!/3D/**/*.json

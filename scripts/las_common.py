@@ -6,6 +6,7 @@ Reading it as a raw structured array is ~10x faster than a generic
 LAS library path and works on partially downloaded files.
 """
 
+import glob
 import json
 import os
 import struct
@@ -127,3 +128,32 @@ def pixel_to_utm(t, col, row):
     x = t["minx"] + np.asarray(col) * t["res"]
     y = t["maxy"] - np.asarray(row) * t["res"]
     return x, y
+
+
+def find_las_file(data_dir):
+    """Plug-and-play LAS discovery: any single .las file dropped in
+    `data_dir` is picked up automatically, no hardcoded filename. With
+    more than one, the most recently modified wins (and every candidate
+    is printed, so the choice isn't silent)."""
+    candidates = sorted(glob.glob(os.path.join(data_dir, "*.las")))
+    if not candidates:
+        return None
+    if len(candidates) == 1:
+        return candidates[0]
+    candidates.sort(key=os.path.getmtime, reverse=True)
+    print(f"multiple .las files in {data_dir}, using the most recent: "
+          f"{os.path.basename(candidates[0])}")
+    print("  (others found: " + ", ".join(os.path.basename(c) for c in candidates[1:]) + ")")
+    return candidates[0]
+
+
+def resolve_las_path(stored_path, data_dir):
+    """A dem_transform.json's source_las may point somewhere that's since
+    moved (a relocated project, a renamed file) - fall back to whatever's
+    in data_dir rather than failing outright."""
+    if stored_path and os.path.exists(stored_path):
+        return stored_path
+    found = find_las_file(data_dir)
+    if found and stored_path:
+        print(f"source_las {stored_path!r} not found, using {found!r} from {data_dir} instead")
+    return found

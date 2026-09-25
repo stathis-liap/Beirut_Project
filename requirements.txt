@@ -6,3 +6,22 @@ numba>=0.66      # older builds cap out below numpy 2.4, see scripts/flood_sim.p
 pyvista>=0.46
 imageio>=2.37
 pyproj>=3.7
+
+# 3D SPH solver (particle_sim.py, and the area_sim.py / cad_sim.py runs that
+# call it). Taichi's wheels lag new CPython releases - 1.7.4 is why this
+# project pins itself to Python 3.11; check Taichi's support matrix before
+# moving the interpreter forward.
+taichi>=1.7
+
+# "Pick a point on the map" - windowed reads of the 5cm DSM/RGB rasters
+rasterio>=1.4
+
+# Custom CAD models
+rhino3dm>=8.0    # .3dm  (load_cad_model.py)
+ezdxf>=1.4       # .dxf, and .dwg after ODA conversion (load_dwg_model.py)
+pandas>=2.0      # per-cell groupby when binding CAD verts into a DEM
+trimesh>=4.0     # .obj, the documented escape hatch for .dwg/.skp exports
+
+# .dwg additionally needs the ODA File Converter, which is not pip-installable:
+#   winget install ODA.ODAFileConverter
+# ezdxf reads DXF but not binary DWG. See scripts/load_dwg_model.py.
