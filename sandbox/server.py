@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """FastAPI backend for the interactive green-corridor sandbox.
 
-Run (dev): /home/stathisliap/Work/.venv/bin/uvicorn sandbox.server:app --reload --port 8008
+Run (dev): python -m uvicorn sandbox.server:app --reload --port 8008
 Run (prod, after `npm run build` in webui/):
-    /home/stathisliap/Work/.venv/bin/uvicorn sandbox.server:app --port 8008
+    python -m uvicorn sandbox.server:app --port 8008
 """
 import asyncio
 import base64

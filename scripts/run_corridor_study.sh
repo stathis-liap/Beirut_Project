@@ -2,8 +2,8 @@
 # Before/after green-corridor study on the 0.5 m corridor domain.
 # Idempotent: existing runs are skipped. Detach-safe.
 set -uo pipefail
-cd /home/stathisliap/Work/Beirut_Project
-PY=/home/stathisliap/Work/.venv/bin/python
+cd "$(dirname "$0")/.."
+PY=${PYTHON:-python}
 # Overridable so a scratch/review terrain can be studied side by side with the
 # published one instead of overwriting it; unset, these are the published paths
 # and the script behaves exactly as before.

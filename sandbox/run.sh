@@ -7,4 +7,4 @@ export NVM_DIR="$HOME/.nvm"
 [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
 
 (cd webui && npm run build)
-/home/stathisliap/Work/.venv/bin/uvicorn sandbox.server:app --port 8008
+"${PYTHON:-python}" -m uvicorn sandbox.server:app --port 8008

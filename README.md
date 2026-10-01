@@ -120,9 +120,15 @@ everything the simulations consume.
 Python 3.12 with a geospatial + PyTorch stack (GPU optional but recommended):
 
 ```bash
-python -m venv .venv && source .venv/bin/activate
+python -m venv .venv
+source .venv/bin/activate          # Windows (PowerShell): .venv\Scripts\Activate.ps1
 pip install numpy scipy torch rasterio shapely matplotlib pillow laspy lazrs
 ```
+
+For a CUDA build of PyTorch, use the install command for your CUDA version
+from [pytorch.org](https://pytorch.org/get-started/locally/). All commands
+below assume this environment is active. The shell scripts use whatever
+`python` is on your `PATH`; set `PYTHON=/path/to/python` to override.
 
 Add `--device cpu` to any simulation command to force CPU. The LiDAR scripts
 stream in chunks; pass `--workers 4` on memory-constrained machines.
@@ -137,18 +143,32 @@ the pipeline's own results bit-for-bit).
 
 ![Sandbox: painting materials and sculpting terrain in the browser](docs/img/sandbox_screenshot.png)
 
+Requirements: the Python environment above, plus
+[Node.js](https://nodejs.org/) 20.19+ or 22.12+ (needed by Vite 8) for the
+frontend. Run everything from the repository root with the virtual
+environment active.
+
 ```bash
-# one-time setup
-/home/stathisliap/Work/.venv/bin/pip install fastapi "uvicorn[standard]" pillow
+# one-time setup -----------------------------------------------------------
+pip install fastapi "uvicorn[standard]" pillow
 cd webui && npm install && cd ..
 
-# dev (two terminals): backend --------------------------------------------
-/home/stathisliap/Work/.venv/bin/uvicorn sandbox.server:app --reload --port 8008
-# frontend -----------------------------------------------------------------
-cd webui && npm run dev   # open http://localhost:5173
+# dev (two terminals) ------------------------------------------------------
+# terminal 1, backend:
+python -m uvicorn sandbox.server:app --reload --port 8008
+# terminal 2, frontend (proxies /api to port 8008):
+cd webui && npm run dev            # open http://localhost:5173
 
-# production (one command, after building the frontend once): -------------
-bash sandbox/run.sh       # open http://localhost:8008
+# production (one command: builds the frontend, then serves it) -----------
+bash sandbox/run.sh                # open http://localhost:8008
+```
+
+On Windows, run `sandbox/run.sh` from Git Bash or WSL, or do the same two
+steps by hand in PowerShell:
+
+```powershell
+cd webui; npm run build; cd ..
+python -m uvicorn sandbox.server:app --port 8008
 ```
 
 Paint a material or sculpt the ground, pick a storm (or draw a custom one),
